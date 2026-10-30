@@ -3056,14 +3056,11 @@ body.body--con-nav-inferior .toast-contenedor {
 }
 
 .header-negocio__marca {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
   font-family: var(--fuente-titulos);
   text-transform: uppercase;
-  font-weight: 500;
-  font-size: 1.25rem;
-  letter-spacing: 0.12em;
+  font-weight: 300;
+  font-size: 1.125rem;
+  letter-spacing: 0.32em;
   color: var(--marca-texto);
   white-space: nowrap;
 }
@@ -7284,21 +7281,15 @@ body.admin .notificaciones-push__boton--secundario:hover:not(:disabled) {
 }
 
 /* =====================================================================================
-   Logo de ZÉRO fuera de la portada (header, "Sobre nosotros" y pie de la carta física).
+   Logo de ZÉRO fuera de la portada ("Sobre nosotros" y pie de la carta física).
    Es el único elemento redondo junto con el punto de "Abierto": el logo es un sello
    circular y recortarlo en cuadrado lo deformaría.
    ===================================================================================== */
-.header-negocio__logo,
 .sobre-nosotros__logo,
 .carta-fisica__pie-logo {
   flex: none;
   border-radius: 50%;
   box-shadow: 0 0 12px color-mix(in srgb, var(--marca-dorado) 18%, transparent);
-}
-
-.header-negocio__logo {
-  width: 32px;
-  height: 32px;
 }
 
 .sobre-nosotros__logo {
