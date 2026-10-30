@@ -1,0 +1,1954 @@
+EXPLICACIÓN DEL SCRIPT DE BASE DE DATOS EJECUTADO
+Plataforma multi-negocio (domicilios + carta digital + panel admin)
+====================================================================
+
+Este documento explica, en orden, cada parte del script que ya ejecutaste en
+Supabase: qué es, para qué sirve, y cómo funciona. Incluye también las
+correcciones de seguridad aplicadas después del script original, la
+incorporación del almacenamiento de imágenes, la corrección de las
+políticas faltantes en usuarios_admin, la corrección de atomicidad en la
+creación de usuarios, y la evolución completa del modelo de adiciones
+(de "por producto" → "grupos globales por negocio" → "catálogo plano de
+adiciones independientes", que es el modelo final actual).
+
+
+1. EXTENSIÓN pgcrypto
+--------------------------------------------------------------------
+create extension if not exists "pgcrypto";
+
+QUÉ ES: un complemento de PostgreSQL que añade funciones de generación
+aleatoria/criptográfica.
+
+PARA QUÉ: la necesitas para poder usar gen_random_uuid(), que es la función
+que genera automáticamente un identificador único (UUID) cada vez que se
+crea un registro nuevo en cualquier tabla.
+
+CÓMO FUNCIONA: sin esta extensión, gen_random_uuid() no existiría en tu base
+de datos y las tablas no podrían generar sus propios IDs automáticamente.
+
+
+2. TABLA negocios
+--------------------------------------------------------------------
+QUÉ ES: la tabla maestra de cada negocio cliente de la plataforma.
+
+PARA QUÉ: es el punto de partida de todo — cada categoría, producto, pedido
+y usuario admin pertenece a un negocio específico, identificado por
+negocio_id.
+
+CÓMO FUNCIONA CADA CAMPO:
+- id: identificador único del negocio, generado automáticamente.
+- nombre: el nombre comercial del negocio.
+- slug: versión corta y única del nombre, para rutas o URLs.
+- dominio_propio: dominio personalizado del negocio cuando pasa del link
+  gratuito de Vercel a su propio dominio. Empieza vacío.
+- activo: true o false — controlado desde tu panel maestro según si el
+  negocio pagó o no la mensualidad.
+- fecha_proximo_pago: la fecha en que ese negocio debe volver a pagar.
+- whatsapp_contacto: el número de WhatsApp del negocio, al que llegan los
+  pedidos.
+- configuracion: JSON "comodín" para ajustes específicos de un negocio —
+  aquí es donde vive el contenido editable de la sección "Sobre nosotros"
+  de la carta pública (descripción, horario, dirección, redes sociales),
+  que el dueño edita desde /admin/negocio en el panel.
+- creado_en: fecha y hora de registro, se llena sola.
+
+CAMBIO — política de escritura para que el dueño edite su propio negocio:
+originalmente `negocios` solo tenía una política de LECTURA pública (para
+que la carta pública pudiera mostrar nombre/horario/etc.), pero ninguna de
+ESCRITURA — así que el formulario de /admin/negocio (pantalla nueva para
+que el dueño edite horario, dirección, redes y descripción sin tocar
+código ni pedir cambios en Supabase) guardaba en apariencia bien, pero en
+realidad RLS bloqueaba el update silenciosamente. Se agregó:
+
+    create policy "dueno_actualiza_su_negocio"
+    on negocios
+    for update
+    using (
+      id = (auth.jwt() -> 'app_metadata' ->> 'negocio_id')::uuid
+      and (auth.jwt() -> 'app_metadata' ->> 'rol') = 'dueño'
+    )
+    with check (
+      id = (auth.jwt() -> 'app_metadata' ->> 'negocio_id')::uuid
+      and (auth.jwt() -> 'app_metadata' ->> 'rol') = 'dueño'
+    );
+
+INCIDENTE DE SEGURIDAD (repetido) — user_metadata otra vez: la primera
+versión de esta política que se propuso usaba `user_metadata` en lugar de
+`app_metadata` para verificar negocio_id y rol. Es EXACTAMENTE el mismo
+error ya corregido una vez en este proyecto (ver sección 12) — user_metadata
+lo puede editar el propio usuario desde el navegador, así que una política
+basada en él se puede saltar auto-asignándose cualquier negocio_id/rol. Se
+corrigió antes de correrla. LECCIÓN reforzada: cualquier política de
+escritura nueva, sin excepción, debe revisarse específicamente por si usa
+user_metadata en vez de app_metadata antes de ejecutarla — este tipo de
+error ya se ha colado dos veces en el proyecto.
+
+CONSECUENCIA EN EL CÓDIGO: useNegocio.js ahora pide la fila actualizada de
+vuelta con .select().single() al guardar — así, si RLS llega a bloquear
+un update en el futuro, el formulario muestra un error real en vez de un
+"Guardado" falso que oculta el problema.
+
+
+3. TABLA usuarios_admin (login por número)
+--------------------------------------------------------------------
+QUÉ ES: las cuentas que usan los dueños y empleados de cada negocio para
+entrar al panel de administración.
+
+CÓMO FUNCIONA CADA CAMPO (estado actual):
+- id: identificador único de la cuenta.
+- negocio_id: a qué negocio pertenece (on delete cascade con negocios).
+- numero: el número de teléfono con el que esa persona inicia sesión.
+- nombre: nombre identificable del usuario (ej. "Juan", "Camilo") —
+  columna agregada después del diseño inicial, ver detalle abajo.
+- rol: "dueño" o "empleado" (garantizado por un check).
+- creado_en: fecha de creación.
+- puede_productos / puede_categorias / puede_adiciones: boolean, default
+  false — permisos granulares para un empleado (un dueño siempre tiene
+  acceso completo sin importar estas columnas). Ver "CAMBIO" abajo.
+- unique(negocio_id, numero): dos usuarios del MISMO negocio no pueden
+  compartir número; negocios distintos sí pueden reutilizar un número.
+
+CAMBIO — permisos granulares por empleado: originalmente un empleado solo
+podía gestionar pedidos (rol fijo, sin matices). Se agregó la posibilidad
+de que el dueño le dé permiso a un empleado puntual para gestionar
+también productos, categorías y/o adiciones, activando o desactivando
+cada uno por separado. Se agregó con:
+
+    alter table usuarios_admin add column puede_productos boolean not null default false;
+    alter table usuarios_admin add column puede_categorias boolean not null default false;
+    alter table usuarios_admin add column puede_adiciones boolean not null default false;
+
+Y 4 políticas RLS nuevas (una por tabla: productos, variantes_producto,
+categorias, adiciones) que permiten escribir a un empleado activo con el
+permiso correspondiente, usando el número extraído del correo interno
+para identificar qué fila de usuarios_admin le corresponde. Estas
+políticas se SUMAN a las ya existentes del dueño (Postgres combina
+políticas permisivas con OR) — no las reemplazan ni las tocan. El patrón
+completo (para las 4 tablas) es:
+
+    create policy "Empleados con permiso gestionan productos"
+    on productos for all to authenticated
+    using (
+      negocio_id = (auth.jwt() -> 'app_metadata' ->> 'negocio_id')::uuid
+      and exists (
+        select 1 from usuarios_admin ua
+        where ua.negocio_id = productos.negocio_id
+          and ua.numero = split_part(auth.jwt() ->> 'email', '.', 1)
+          and ua.activo = true and ua.puede_productos = true
+      )
+    )
+    with check (
+      negocio_id = (auth.jwt() -> 'app_metadata' ->> 'negocio_id')::uuid
+      and exists (
+        select 1 from usuarios_admin ua
+        where ua.negocio_id = productos.negocio_id
+          and ua.numero = split_part(auth.jwt() ->> 'email', '.', 1)
+          and ua.activo = true and ua.puede_productos = true
+      )
+    );
+
+(la misma estructura se repite para variantes_producto y categorias con
+puede_productos/puede_categorias respectivamente, y para adiciones con
+puede_adiciones).
+
+CAMBIO — un permiso por sección del panel (2026-10-21, pedido del dueño:
+"no me aparecen todas las opciones"). Además de productos, categorías y
+adiciones, el dueño puede darle a cada empleado acceso a Pedidos, Ofertas
+y Negocio. Inicio lo ve cualquier usuario del panel; Usuarios sigue siendo
+solo del dueño (gestionar cuentas no se delega: un empleado podría darse
+más permisos o crear cuentas nuevas).
+
+CAMPOS NUEVOS:
+- puede_pedidos: default TRUE, para que los empleados que ya existen
+  sigan viendo los pedidos como hasta ahora (antes era automático).
+- puede_ofertas / puede_negocio: default false.
+
+POLÍTICAS:
+- pedidos: una política RESTRICTIVA para usuarios autenticados. Las
+  políticas restrictivas se combinan con AND con las que ya existen
+  (cuyos nombres no estaban documentados), así que no hace falta
+  reemplazarlas: un empleado sin puede_pedidos deja de ver y de cambiar
+  pedidos. No afecta al checkout público, que inserta como anon.
+- ofertas, negocio_config: políticas permisivas nuevas para empleados
+  con el permiso (se suman con OR a las del dueño, que no cambian).
+- productos_categorias: política nueva para empleados con
+  puede_categorias, para que puedan elegir los productos de una
+  categoría desde su formulario (antes solo puede_productos).
+- usuarios_admin no cambia: solo el dueño puede editar permisos, así que
+  un empleado no puede dárselos a sí mismo.
+
+SCRIPT SQL (correrlo ANTES de desplegar el código nuevo: el panel pide
+estas columnas al iniciar sesión):
+
+    begin;
+
+    alter table usuarios_admin
+      add column puede_pedidos boolean not null default true,
+      add column puede_ofertas boolean not null default false,
+      add column puede_negocio boolean not null default false;
+
+    create policy "Solo dueño o empleados con permiso ven pedidos"
+    on pedidos as restrictive for all to authenticated
+    using (
+      (auth.jwt() -> 'app_metadata' ->> 'rol') = 'dueño'
+      or exists (
+          select 1 from usuarios_admin ua
+          where ua.negocio_id = pedidos.negocio_id
+            and ua.numero = split_part(auth.jwt() ->> 'email', '.', 1)
+            and ua.activo = true and ua.puede_pedidos = true
+        )
+    )
+    with check (
+      (auth.jwt() -> 'app_metadata' ->> 'rol') = 'dueño'
+      or exists (
+          select 1 from usuarios_admin ua
+          where ua.negocio_id = pedidos.negocio_id
+            and ua.numero = split_part(auth.jwt() ->> 'email', '.', 1)
+            and ua.activo = true and ua.puede_pedidos = true
+        )
+    );
+
+    create policy "Empleados con permiso gestionan ofertas"
+    on ofertas for all to authenticated
+    using (
+      negocio_id = (auth.jwt() -> 'app_metadata' ->> 'negocio_id')::uuid
+      and exists (
+          select 1 from usuarios_admin ua
+          where ua.negocio_id = ofertas.negocio_id
+            and ua.numero = split_part(auth.jwt() ->> 'email', '.', 1)
+            and ua.activo = true and ua.puede_ofertas = true
+        )
+    )
+    with check (
+      negocio_id = (auth.jwt() -> 'app_metadata' ->> 'negocio_id')::uuid
+      and exists (
+          select 1 from usuarios_admin ua
+          where ua.negocio_id = ofertas.negocio_id
+            and ua.numero = split_part(auth.jwt() ->> 'email', '.', 1)
+            and ua.activo = true and ua.puede_ofertas = true
+        )
+    );
+
+    create policy "Empleados con permiso editan negocio_config"
+    on negocio_config for all to authenticated
+    using (
+      negocio_id = (auth.jwt() -> 'app_metadata' ->> 'negocio_id')::uuid
+      and exists (
+          select 1 from usuarios_admin ua
+          where ua.negocio_id = negocio_config.negocio_id
+            and ua.numero = split_part(auth.jwt() ->> 'email', '.', 1)
+            and ua.activo = true and ua.puede_negocio = true
+        )
+    )
+    with check (
+      negocio_id = (auth.jwt() -> 'app_metadata' ->> 'negocio_id')::uuid
+      and exists (
+          select 1 from usuarios_admin ua
+          where ua.negocio_id = negocio_config.negocio_id
+            and ua.numero = split_part(auth.jwt() ->> 'email', '.', 1)
+            and ua.activo = true and ua.puede_negocio = true
+        )
+    );
+
+    create policy "Empleados con permiso de categorías gestionan productos_categorias"
+    on productos_categorias for all to authenticated
+    using (
+      negocio_id = (auth.jwt() -> 'app_metadata' ->> 'negocio_id')::uuid
+      and exists (
+          select 1 from usuarios_admin ua
+          where ua.negocio_id = productos_categorias.negocio_id
+            and ua.numero = split_part(auth.jwt() ->> 'email', '.', 1)
+            and ua.activo = true and ua.puede_categorias = true
+        )
+    )
+    with check (
+      negocio_id = (auth.jwt() -> 'app_metadata' ->> 'negocio_id')::uuid
+      and exists (
+          select 1 from usuarios_admin ua
+          where ua.negocio_id = productos_categorias.negocio_id
+            and ua.numero = split_part(auth.jwt() ->> 'email', '.', 1)
+            and ua.activo = true and ua.puede_categorias = true
+        )
+    );
+
+    commit;
+
+ESTADO: YA SE CORRIÓ — el dueño lo ejecutó el 2026-10-21; verificado con una
+consulta de solo lectura (las tres columnas responden).
+
+CONSECUENCIA EN EL CÓDIGO:
+- lib/seccionesAdmin.js: PERMISOS_EMPLEADO (columna, nombre en useAuth,
+  etiqueta y descripción) es la única lista de permisos; la usan el menú,
+  useAuth, useUsuariosAdmin y la pantalla Usuarios.
+- /admin/usuarios: seis interruptores por empleado (Pedidos, Productos,
+  Categorías, Adiciones, Ofertas, Negocio).
+- Rutas: Pedidos, Ofertas y Negocio piden su permiso; sin permiso se
+  vuelve a Inicio (antes a Pedidos).
+- Inicio del panel: sin permiso de pedidos no muestra la métrica de
+  pedidos ni el asistente de ventas.
+
+NOTA TÉCNICA: split_part(auth.jwt() ->> 'email', '.', 1) funciona porque
+el correo interno tiene el formato numero.negocioId@interno.local, y el
+negocioId (un UUID) usa guiones, no puntos — así que cortar por el primer
+punto siempre aísla el número correctamente.
+
+CONSECUENCIA EN EL CÓDIGO: en /admin/usuarios, junto a cada empleado, tres
+interruptores (Productos, Categorías, Adiciones) que el dueño prende o
+apaga — controlan tanto qué ve el empleado en el menú del panel como lo
+que Supabase realmente le deja escribir.
+
+CAMBIO — se agregó la columna nombre: originalmente esta tabla solo
+identificaba a cada usuario por su número de teléfono, sin ningún nombre
+legible para mostrar en el panel admin. Se agregó la columna nombre
+(text, obligatoria) con este script:
+
+    alter table usuarios_admin add column nombre text;
+
+    update usuarios_admin
+    set nombre = 'Juan'
+    where negocio_id = 'EL_ID_DEL_NEGOCIO' and rol = 'dueño';
+
+    update usuarios_admin
+    set nombre = 'Camilo'
+    where negocio_id = 'EL_ID_DEL_NEGOCIO' and rol = 'empleado';
+
+    alter table usuarios_admin alter column nombre set not null;
+
+Se agregó la columna primero sin la restricción "not null" para poder
+asignarle un valor a los usuarios ya existentes (dueño y empleado de
+prueba) antes de volverla obligatoria — si se hubiera puesto "not null"
+desde el principio, esa misma migración habría fallado por las filas que
+ya existían sin nombre.
+
+CONSECUENCIA EN EL CÓDIGO: la Edge Function crear-usuario-admin y el
+formulario de creación de empleados en el panel deben incluir ahora el
+campo nombre (pendiente de que Codex lo implemente, ver seguimiento).
+
+CAMBIO — se agregó la columna activo: permite desactivar la cuenta de un
+dueño o empleado sin borrarla (ej. un empleado que ya no trabaja ahí, pero
+se quiere conservar su historial). Se agregó con:
+
+    alter table usuarios_admin add column activo boolean not null default true;
+
+Al tener valor por defecto, todas las cuentas existentes quedaron activas
+automáticamente.
+
+CONSECUENCIA EN EL CÓDIGO (IMPORTANTE): el login (useAuth.js) debe
+verificar que activo = true además de validar negocio_id y rol — si no,
+una cuenta desactivada podría seguir entrando al panel con su contraseña,
+porque Supabase Auth por sí solo no sabe nada de esta columna (vive en
+usuarios_admin, no en auth.users). También hace falta el switch/toggle en
+la lista de usuarios del panel para poder activar/desactivar, restringido
+solo a dueños (igual que crear/editar/eliminar usuarios).
+
+HISTORIAL DE CAMBIOS SOBRE ESTA TABLA:
+- Tuvo una columna contrasena_hash, eliminada por no tener uso real (la
+  autenticación la maneja Supabase Auth). Ver sección 10.
+- Se quedó con RLS activado pero SIN políticas desde el script original,
+  bloqueando toda lectura/escritura. Corregido — ver sección 12.
+- La fila de cada usuario ya NO se inserta desde el frontend: se creó
+  dentro de la Edge Function crear-usuario-admin como parte de una
+  corrección de atomicidad. Ver sección 13.
+- Se le agregó la columna nombre (ver arriba).
+- Se le agregó la columna activo (ver arriba).
+
+
+4. TABLA categorias
+--------------------------------------------------------------------
+QUÉ ES: las secciones en las que un negocio organiza su menú (ej.
+"Bebidas", "Platos fuertes").
+
+CÓMO FUNCIONA: cada categoría pertenece a un negocio_id específico.
+
+CÓMO FUNCIONA CADA CAMPO (estado actual):
+- activo: true/false, para ocultar una categoría completa del menú sin
+  borrarla — columna agregada después del diseño inicial, ver "CAMBIO"
+  abajo.
+
+CAMBIO — se agregó la columna activo, con una regla que la protege: una
+categoría NO se puede desactivar si todavía tiene productos asignados
+(categoria_id apuntando a ella). Esto se implementó con un trigger en la
+base de datos (no solo validación en el panel), para que la regla se
+cumpla siempre, sin importar desde cuál de los proyectos de React se
+intente el cambio:
+
+    alter table categorias add column activo boolean not null default true;
+
+    create or replace function bloquear_desactivar_categoria_con_productos()
+    returns trigger as $$
+    begin
+      if new.activo = false and old.activo = true then
+        if exists (select 1 from productos where categoria_id = old.id) then
+          raise exception 'No se puede desactivar "%": tiene productos relacionados.', old.nombre;
+        end if;
+      end if;
+      return new;
+    end;
+    $$ language plpgsql;
+
+    create trigger trg_bloquear_desactivar_categoria
+    before update on categorias
+    for each row execute function bloquear_desactivar_categoria_con_productos();
+
+Si se intenta desactivar una categoría con productos, Supabase devuelve un
+error con ese mensaje — el panel admin debe mostrarlo tal cual (o uno
+propio más amigable) en vez de dejar que parezca un error genérico.
+
+CONSECUENCIA EN EL CÓDIGO: agregar el switch/toggle de "Activo" en la
+lista de categorías del panel, capturar el error del trigger para
+mostrarlo de forma clara, y filtrar por activo = true en la carta pública
+(domicilios y carta física) para que una categoría desactivada no se
+muestre al cliente.
+
+CAMBIO — se agregaron visible_domicilios y visible_carta_fisica: permite
+elegir, por cada categoría, si aparece en la carta de domicilios, en la
+carta física (QR de mesa), o en ambas — independiente de "activo" (que
+apaga el ítem en todos lados). Se agregó con:
+
+    alter table categorias
+      add column visible_domicilios boolean not null default true,
+      add column visible_carta_fisica boolean not null default true;
+
+Con default true en ambas, todo lo existente queda visible en las dos
+cartas sin necesidad de actualizar nada manualmente.
+
+CONSECUENCIA EN EL CÓDIGO: en el formulario de categoría del panel,
+agregar dos checkboxes ("Mostrar en carta de domicilios" / "Mostrar en
+carta física"). En la consulta de la carta de domicilios, filtrar por
+visible_domicilios = true (además de activo = true); en la carta física,
+por visible_carta_fisica = true (además de activo = true).
+
+HISTORIAL DE CAMBIOS SOBRE ESTA TABLA:
+- Se le agregó la columna activo, protegida con un trigger (ver arriba).
+- Se le agregaron visible_domicilios y visible_carta_fisica (ver arriba).
+- 2026-09-29: el trigger de arriba se QUITÓ (el dueño corrió un drop
+  trigger) porque desactivar una categoría pasó a desactivar en cascada
+  sus productos desde el panel. Ver CHANGELOG 2026-09-29 (3).
+- 2026-10-07: los productos ya no tienen una sola categoría
+  (productos.categoria_id) sino varias, en la tabla productos_categorias
+  (sección 16). Desactivar una categoría ya no desactiva sus productos:
+  solo la oculta. Se agregó unique (id, negocio_id) para las llaves
+  compuestas de esa tabla.
+- 2026-10-21: se agregaron en_inicio y emoji_inicio (categorías
+  ancladas al Inicio de la carta), ver "CAMBIO — categorías en el
+  Inicio" abajo.
+
+CAMBIO — categorías en el Inicio de la carta (2026-10-21, pedido del
+dueño): el admin elige qué categorías salen en la cuadrícula "Explora
+por categoría" del Inicio de la carta de domicilios, y el emoji de cada
+una. La cuadrícula es de 2 columnas, así que solo se muestra con 2 o 4
+ancladas (nunca una casilla suelta).
+
+CÓMO FUNCIONA CADA CAMPO:
+- en_inicio: true/false, default false — si está anclada al Inicio.
+- emoji_inicio: el emoji que se muestra en su casilla (texto, máximo 16
+  caracteres para admitir emojis compuestos: tonos de piel, banderas,
+  secuencias con ZWJ). Obligatorio si está anclada. Al desanclar se
+  conserva, por si se vuelve a anclar.
+
+REGLAS:
+- Máximo 4 ancladas por negocio: lo garantiza un trigger (además del
+  formulario). No hay un check de "exactamente 2 o 4" porque no se puede
+  cumplir fila por fila: para llegar a 2 hay que pasar por 1. Esa regla
+  la aplica la carta: con 1 o 3 ancladas la sección no se muestra, y el
+  panel lo avisa.
+- Anclada exige emoji: check chk_categoria_inicio_emoji.
+- RLS: no cambia; las columnas heredan las políticas de categorias.
+
+SCRIPT SQL (correrlo ANTES de desplegar el código nuevo: el formulario
+del panel guarda estas columnas y sin ellas falla al guardar):
+
+    begin;
+
+    alter table categorias
+      add column en_inicio boolean not null default false,
+      add column emoji_inicio text
+        check (emoji_inicio is null or char_length(emoji_inicio) between 1 and 16);
+
+    alter table categorias
+      add constraint chk_categoria_inicio_emoji
+        check (not en_inicio or emoji_inicio is not null);
+
+    create or replace function limitar_categorias_inicio()
+    returns trigger
+    language plpgsql
+    set search_path = public
+    as $
+    begin
+      if new.en_inicio and (tg_op = 'INSERT' or not old.en_inicio) then
+        if (
+          select count(*) from categorias
+          where negocio_id = new.negocio_id and en_inicio and id <> new.id
+        ) >= 4 then
+          raise exception 'Ya hay 4 categorías en el inicio de la carta. Desancla una para anclar esta.';
+        end if;
+      end if;
+      return new;
+    end;
+    $;
+
+    create trigger trg_limitar_categorias_inicio
+    before insert or update of en_inicio on categorias
+    for each row execute function limitar_categorias_inicio();
+
+    commit;
+
+ESTADO: YA SE CORRIÓ (2026-10-21). Verificado después: en_inicio y
+emoji_inicio responden en la API.
+
+CAMBIO DE USO (2026-10-21, sin cambio de esquema): emoji_inicio ya no
+guarda un emoji sino la CLAVE de un ícono de línea (ej. 'vaso',
+'vaso-pitillo', 'jarra', 'coctel', 'combo'...; lista completa en
+src/lib/categoriasInicio.js). El dueño prefirió íconos delgados a los
+emojis. La columna conserva su nombre para no hacer una migración; las
+claves caben en el check de 16 caracteres. Las filas que ya tenían un
+emoji (🥤, 🍸) no se tocaron: el código traduce cada emoji antiguo al
+ícono equivalente al mostrarlo, y al editar la categoría en el panel se
+guarda la clave.
+
+CONSECUENCIA EN EL CÓDIGO:
+- Formulario de categoría: bloque "Inicio de la carta" con la casilla
+  "Anclar en el inicio de la carta de domicilios" y, al marcarla, un
+  selector de emojis (30 sugeridos + campo para pegar otro). Deshabilitada
+  si ya hay 4 ancladas. El mensaje del trigger se muestra tal cual.
+- Lista de categorías del panel: insignia "<emoji> Inicio" en las
+  ancladas y un aviso arriba con cuántas hay (verde con 2 o 4).
+- Carta (lib/categoriasInicio.js): de las categorías que ya se ven en
+  domicilios (activas, visibles y con productos), toma las ancladas con
+  emoji; si no son exactamente 2 o 4, la sección no se muestra. Antes la
+  cuadrícula mostraba todas las categorías con un ícono elegido por el
+  nombre.
+
+
+5. TABLA productos
+--------------------------------------------------------------------
+QUÉ ES: el catálogo de productos que vende cada negocio.
+
+CÓMO FUNCIONA CADA CAMPO:
+- negocio_id: a qué negocio pertenece el producto.
+- categoria_id: en qué categoría está (on delete set null). OBSOLETA
+  desde 2026-10-07: un producto puede estar en varias categorías y eso
+  vive en la tabla productos_categorias (sección 16). La columna se borra
+  en el paso 2 de esa sección.
+- nombre / descripcion: información visible del producto.
+- precio: el precio normal. Puede quedar vacío (null) SOLO si
+  tiene_variantes = true — ver "CAMBIO — variantes" abajo.
+- precio_oferta: si tiene valor, se muestra el precio original tachado y
+  este como precio final — así se maneja toda oferta en la plataforma.
+  Deja de aplicar si el producto tiene variantes.
+- disponible: true/false, para marcar agotado sin borrar.
+- tiene_variantes: true/false — indica si el precio del producto se
+  maneja por variantes (tabla variantes_producto, sección 15) en vez de
+  por precio/precio_oferta directos. Ver detalle abajo.
+- destacado: true/false, default false — lo marca el dueño (o empleado
+  con permiso) para decidir manualmente cuáles productos salen en el
+  carrusel de la sección Inicio (máximo 5). No depende de ventas ni de
+  ningún cálculo automático, es una elección directa del negocio.
+- imagen_url: link público de la imagen (Supabase Storage). Ver
+  sección 9.
+
+NOTA: un producto NO tiene relación directa en la base de datos con las
+adiciones — cualquier producto puede ofrecer cualquiera de las adiciones
+del catálogo del negocio (ver sección 6), sin ninguna tabla intermedia
+que los vincule uno a uno. La relación se resuelve en el frontend al
+armar el pedido, no en el esquema.
+
+CAMBIO — se agregaron visible_domicilios y visible_carta_fisica: mismo
+concepto y mismo script que en categorias (ver sección 4) — permite que
+un producto aparezca solo en domicilios, solo en la carta física, o en
+ambas, independiente de "disponible" (que lo apaga en todos lados por
+completo, ej. agotado).
+
+    alter table productos
+      add column visible_domicilios boolean not null default true,
+      add column visible_carta_fisica boolean not null default true;
+
+CONSECUENCIA EN EL CÓDIGO: mismo tratamiento que en categorias — dos
+checkboxes en el formulario de producto, y filtrar por la columna
+correspondiente en cada carta (además de disponible = true y de que su
+categoria también esté activa y visible en esa carta).
+
+CAMBIO — se agregó tiene_variantes y precio pasó a ser opcional: si un
+producto necesita versiones con precio distinto (tamaños, sabores), sus
+precios se manejan en la tabla variantes_producto (sección 15), no en
+productos.precio. Para que eso fuera posible sin dejar filas
+inconsistentes, se hizo:
+
+    alter table productos alter column precio drop not null;
+
+    alter table productos add column tiene_variantes boolean not null default false;
+
+    alter table productos add constraint chk_precio_o_variantes
+      check (tiene_variantes = true or precio is not null);
+
+El constraint garantiza que un producto SIN variantes siempre tenga
+precio (no se puede dejar sin precio "por accidente"), y que uno CON
+variantes pueda dejar precio en null.
+
+CONSECUENCIA EN EL CÓDIGO (IMPORTANTE — flujo de un solo formulario): el
+formulario de crear/editar producto debe tener un switch "¿Tiene
+variantes?" que, encendido, oculta precio/precio_oferta y muestra una
+sección para agregar hasta 5 variantes (nombre + precio) en el MISMO
+formulario — no como un paso separado después de crear el producto. Al
+guardar: se inserta el producto primero, y con el id resultante se
+insertan las variantes, todo en la misma acción del botón "Crear
+producto"; si falla el segundo paso, se debe revertir el primero (mismo
+criterio de atomicidad usado en la Edge Function crear-usuario-admin,
+sección 13), para no dejar un producto sin variantes ni precio.
+
+HISTORIAL DE CAMBIOS SOBRE ESTA TABLA:
+- Se le agregaron visible_domicilios y visible_carta_fisica.
+- Se agregó tiene_variantes y precio pasó a ser opcional (ver arriba).
+- Se agregó destacado (ver arriba), para el carrusel de Inicio.
+- Las categorías pasaron a la tabla productos_categorias (sección 16);
+  categoria_id queda obsoleta y se borra. Se agregó unique (id,
+  negocio_id) para las llaves compuestas de esa tabla.
+- Se agregaron precio_carta_fisica y precio_oferta_carta_fisica
+  (opcionales: precio distinto en la carta física), ver sección 18.
+
+
+6. TABLA adiciones (MODELO FINAL — catálogo plano por negocio)
+--------------------------------------------------------------------
+QUÉ ES: el catálogo de adiciones/extras que un negocio puede ofrecer al
+armar cualquier pedido (ej. "Gomitas", "Queso extra doble", "Salsa
+picante"). Cada adición es un ítem independiente, muy parecido a un
+producto pero más simple: no tiene categoría, y la imagen es opcional.
+
+PARA QUÉ: permite que un negocio arme su catálogo de adiciones UNA sola
+vez, y que el cliente pueda agregar cualquiera de ellas a cualquier
+producto al hacer su pedido, sin que tengan que estar predefinidas por
+producto. Ejemplos reales: pedir un granizado y agregarle "Gomitas"; pedir
+una salchipapa y agregarle "Queso doble".
+
+CÓMO FUNCIONA CADA CAMPO:
+- id: identificador único de la adición.
+- negocio_id: a qué negocio pertenece (obligatorio).
+- nombre: nombre de la adición (ej. "Gomitas").
+- descripcion: opcional, texto libre.
+- precio: cuánto cuesta agregarla (obligatorio, por defecto 0).
+- imagen_url: opcional — a diferencia de productos, la imagen no es
+  obligatoria para una adición.
+- disponible: true/false — permite ocultar una adición del catálogo sin
+  borrarla, igual que "disponible" en productos. Columna agregada después
+  del diseño inicial, ver "CAMBIO" abajo.
+- creado_en: fecha de creación.
+
+CAMBIO — se agregó la columna disponible: al principio adiciones no tenía
+forma de desactivarse temporalmente (solo se podía borrar). Se agregó con:
+
+    alter table adiciones add column disponible boolean not null default true;
+
+Al tener un valor por defecto (true), no hizo falta hacerlo nullable
+primero como con "nombre" en usuarios_admin — todas las filas existentes
+quedaron automáticamente en true (visibles), sin pasos adicionales.
+
+CONSECUENCIA EN EL CÓDIGO: tanto la lista de adiciones en el panel admin
+como la de productos deben tener un control (switch/checkbox) para marcar
+disponible/no disponible. Y en la carta pública (donde el cliente arma su
+pedido), la consulta de adiciones y de productos debe filtrar por
+disponible = true, para que lo desactivado no aparezca — igual que ya
+debía pasar con productos.
+
+CAMBIO — se agregaron visible_domicilios y visible_carta_fisica: mismo
+concepto que en categorias y productos. Nota: como la carta física no
+tiene carrito, esto en la práctica decide si la adición se muestra como
+información (ej. "extras disponibles") en esa vista, no si se puede
+"agregar" — eso solo aplica en domicilios, donde sí hay carrito.
+
+    alter table adiciones
+      add column visible_domicilios boolean not null default true,
+      add column visible_carta_fisica boolean not null default true;
+
+CÓMO SE USA EN EL PEDIDO: al ver el detalle de cualquier producto, el
+cliente ve la lista completa de adiciones del negocio como casillas de
+verificación (checkboxes) independientes entre sí — todas opcionales,
+puede marcar ninguna, una, o varias. No hay "grupos" ni reglas de
+obligatoriedad ni de selección única/múltiple — cada adición se marca o
+no se marca, de forma libre.
+
+ESTE ES EL TERCER Y ÚLTIMO MODELO usado para las adiciones en este
+proyecto — ver la sección 14 para el historial completo de cómo se llegó
+hasta aquí (por qué se descartaron los dos modelos anteriores).
+
+HISTORIAL DE CAMBIOS SOBRE ESTA TABLA:
+- Se le agregó la columna disponible (ver "CAMBIO" arriba).
+
+
+7. TABLA pedidos
+--------------------------------------------------------------------
+QUÉ ES: cada pedido que hace un cliente final, por domicilio o como
+registro en el punto físico.
+
+CÓMO FUNCIONA CADA CAMPO:
+- negocio_id: a qué negocio pertenece el pedido.
+- cliente_nombre / cliente_telefono / direccion: datos de contacto.
+- productos_detalle: JSON con el detalle completo — productos,
+  cantidades, qué adiciones se marcaron en cada uno (ahora referenciando
+  directamente la tabla adiciones, ya no un grupo/opción), y el subtotal.
+- total: valor total del pedido.
+- estado: ahora admite 5 valores — "nuevo", "aprobado", "en_preparacion",
+  "entregado", "rechazado" — y se puede mover libremente entre cualquiera
+  de ellos (no es un flujo de un solo sentido). Ver "CAMBIO" abajo.
+- atendido_por: nombre del admin (dueño o empleado) que hizo el último
+  cambio de estado — columna agregada, ver "CAMBIO" abajo.
+- creado_en: fecha y hora del pedido.
+
+CAMBIO — estado pasó de 3 a 5 valores, y se agregó atendido_por: al
+principio el estado tenía un check constraint que solo permitía "nuevo",
+"en_preparacion", "entregado", y se pensaba como un flujo de un solo
+sentido. Se amplió para poder aprobar/rechazar un pedido y devolverlo de
+un estado a otro libremente. Se corrió:
+
+    alter table pedidos add column atendido_por text;
+
+    alter table pedidos drop constraint pedidos_estado_check;
+
+    alter table pedidos add constraint pedidos_estado_check
+      check (estado in ('nuevo', 'aprobado', 'en_preparacion', 'entregado', 'rechazado'));
+
+LECCIÓN: el constraint original no estaba documentado explícitamente en
+este archivo con su nombre — antes de ampliar los valores permitidos de
+cualquier columna con estados fijos, conviene primero consultar si existe
+un check constraint activo con:
+
+    select conname, pg_get_constraintdef(oid)
+    from pg_constraint
+    where conrelid = 'NOMBRE_TABLA'::regclass and contype = 'c';
+
+CONSECUENCIA EN EL CÓDIGO: el panel debe guardar en atendido_por el
+nombre (usuarios_admin.nombre) del admin autenticado cada vez que cambia
+el estado de un pedido, y mostrar un selector libre de 5 estados en vez
+de un botón de "siguiente estado" de un solo sentido.
+
+
+8. ÍNDICES
+--------------------------------------------------------------------
+QUÉ SON: estructuras internas que aceleran las búsquedas filtradas por
+negocio_id, que es como se consulta casi todo en este proyecto.
+
+CÓMO FUNCIONAN: no cambian ningún resultado, solo la velocidad.
+
+
+9. ALMACENAMIENTO DE IMÁGENES (Supabase Storage)
+--------------------------------------------------------------------
+QUÉ ES: el servicio de almacenamiento de archivos de Supabase, organizado
+en "buckets", con reglas de seguridad similares al RLS.
+
+PARA QUÉ: guardar las fotos de productos (y ahora también, opcionalmente,
+de adiciones).
+
+CÓMO FUNCIONA EL FLUJO: se sube la imagen desde el panel admin, se
+redimensiona a máx. 1200px y se convierte a WebP en el navegador, se
+guarda en el bucket productos-imagenes bajo una carpeta con el negocio_id,
+y se genera una URL pública que se guarda en imagen_url (de productos, o
+ahora también de adiciones). El bucket es público, así que no hace falta
+política de lectura — solo de insert/update/delete.
+
+
+10. CAMBIOS AL ESQUEMA — LIMPIEZA DE COLUMNAS SIN USO
+--------------------------------------------------------------------
+a) alter table productos add column imagen_url text;
+   Para guardar el link público de la imagen de cada producto.
+
+b) alter table usuarios_admin drop column contrasena_hash;
+   Columna sin uso real: la autenticación la maneja Supabase Auth, no esta
+   tabla.
+
+
+11. ROW LEVEL SECURITY (RLS) — REGLAS GENERALES APRENDIDAS
+--------------------------------------------------------------------
+QUÉ ES: un sistema de reglas de PostgreSQL que decide, fila por fila,
+quién puede leer o modificar qué datos — es lo único que impide que un
+negocio vea o edite los datos de otro, estando todos en la misma base de
+datos.
+
+REGLA CLAVE #1 (aprendida con usuarios_admin, sección 12): activar RLS en
+una tabla sin crear ninguna política la deja completamente BLOQUEADA, no
+abierta por defecto. Nadie puede leer ni escribir salvo con la
+service_role key.
+
+REGLA CLAVE #2 (aprendida con la migración de adiciones, sección 14):
+cuando una tabla cambia de qué otra tabla depende (por ejemplo, de
+depender de producto_id a depender de negocio_id, y finalmente a
+independizarse por completo), toda política de RLS que dependía de la
+relación vieja debe borrarse ANTES del cambio de esquema y recrearse
+después con la lógica nueva.
+
+ESTADO ACTUAL DE LAS POLÍTICAS (ya con todo corregido):
+- negocios: lectura pública solo de los activos; escritura (update) solo
+  del dueño sobre su propia fila (vía app_metadata) — ver sección 2.
+- categorias, productos: lectura pública total; escritura solo del dueño
+  del negocio (vía app_metadata).
+- adiciones: lectura pública total; escritura solo del dueño del negocio
+  (vía app_metadata) — ver sección 14 para el detalle completo.
+- productos_categorias: lectura pública total; escritura del dueño del
+  negocio y de los empleados con puede_productos (vía app_metadata) — ver
+  sección 16.
+- ofertas: lectura pública solo de las activas; el dueño lee todas las
+  suyas y es el único que escribe (vía app_metadata) — ver sección 17.
+- pedidos: inserción pública (el cliente crea su pedido sin login);
+  lectura y actualización de estado solo del admin de ese negocio.
+- usuarios_admin: lectura para cualquier admin de su propio negocio;
+  creación/edición/eliminación solo para el rol "dueño" de ese negocio.
+
+El dato de "a qué negocio pertenece la sesión" siempre se lee de
+auth.jwt() -> 'app_metadata' ->> 'negocio_id' — nunca de user_metadata
+(ver sección 12 para el porqué).
+
+REGLA CLAVE #3 (aprendida con negocios, sección 2 — este error SE REPITIÓ):
+al agregar la política de escritura de la tabla negocios, la primera
+versión propuesta volvió a usar user_metadata en vez de app_metadata — el
+mismo error de la sección 12, esta vez en una tabla distinta. Se detectó
+y corrigió antes de ejecutarla. CONCLUSIÓN: no basta con haberlo corregido
+una vez — toda política de escritura NUEVA que se proponga de aquí en
+adelante debe revisarse puntualmente por "¿dice user_metadata en algún
+lado?" antes de correrla en Supabase, sin importar en qué tabla sea.
+
+
+12. CORRECCIÓN DE SEGURIDAD #1 — user_metadata → app_metadata
+--------------------------------------------------------------------
+CUÁL ERA EL PROBLEMA: las políticas leían el negocio_id desde
+auth.jwt() -> 'user_metadata' ->> 'negocio_id', un dato que el propio
+usuario puede modificar desde el navegador (supabase.auth.updateUser),
+permitiendo en teoría acceder a datos de otro negocio.
+
+CORRECCIÓN: se migraron todas las políticas a
+auth.jwt() -> 'app_metadata' ->> 'negocio_id', que solo se escribe desde
+el servidor con la service_role key.
+
+CONSECUENCIA: se creó la Edge Function crear-usuario-admin para poder
+asignar app_metadata de forma segura al crear usuarios.
+
+
+13. CORRECCIÓN DE SEGURIDAD #2 Y DE ATOMICIDAD — usuarios_admin
+--------------------------------------------------------------------
+PROBLEMA #1 (políticas faltantes): usuarios_admin tuvo RLS activado pero
+sin ninguna política, bloqueando toda lectura/escritura desde el frontend
+(error 42501). Se corrigió creando 4 políticas: lectura para cualquier
+admin del negocio; creación/edición/eliminación solo para el rol "dueño",
+siempre limitado a su propio negocio_id.
+
+PROBLEMA #2 (atomicidad): el alta de un usuario estaba dividida en dos
+pasos separados (Edge Function crea el usuario en Auth; frontend inserta
+la fila en usuarios_admin), lo que podía dejar usuarios "fantasma" a
+medias si el segundo paso fallaba. Se corrigió moviendo ese insert DENTRO
+de la Edge Function, con rollback completo si algo falla en cualquier
+paso. El alta de un usuario es ahora una operación atómica de principio a
+fin.
+
+
+14. HISTORIAL COMPLETO DEL MODELO DE ADICIONES (3 versiones)
+--------------------------------------------------------------------
+Las adiciones pasaron por tres diseños distintos en este proyecto. Se
+documentan las tres versiones para que quede claro por qué se descartaron
+las dos primeras, y no se repita el mismo camino en el futuro.
+
+VERSIÓN 1 — Grupos por producto (diseño original del script inicial):
+- Tablas: grupos_opciones (ligada a producto_id) + opciones (ligada a
+  grupo_opciones_id).
+- Cada grupo de adiciones pertenecía a UN producto específico, con reglas
+  de obligatoriedad y de selección única/múltiple.
+- PROBLEMA: si un negocio quería ofrecer la misma adición (ej. "Tamaño")
+  en 20 productos, tenía que crearla 20 veces, una por producto.
+
+VERSIÓN 2 — Grupos globales por negocio (primera corrección):
+- Se agregó negocio_id a grupos_opciones y se eliminó producto_id, para
+  que un grupo de adiciones perteneciera al negocio completo, no a un
+  producto puntual. Cualquier producto podía usar cualquier grupo del
+  catálogo del negocio.
+- Migración aplicada: alter table grupos_opciones add column negocio_id;
+  migración de datos desde producto_id; negocio_id obligatorio;
+  eliminación de producto_id.
+- Políticas RLS recreadas usando negocio_id en lugar de producto_id.
+- PROBLEMA: seguía siendo un modelo de "grupo de opciones" (con reglas de
+  obligatoriedad/selección), cuando lo que en realidad se necesitaba era
+  más simple: cada adición es independiente, opcional, con su propio
+  precio — no agrupada ni con reglas de selección.
+
+VERSIÓN 3 — Catálogo plano de adiciones (MODELO ACTUAL Y DEFINITIVO):
+- Se eliminaron por completo grupos_opciones y opciones.
+- Se creó una única tabla plana: adiciones (negocio_id, nombre,
+  descripcion, precio, imagen_url) — ver el detalle completo en la
+  sección 6.
+- Cada adición es un ítem independiente, parecido a un producto pero sin
+  categoría, con imagen opcional.
+- Al pedir cualquier producto, el cliente ve todas las adiciones del
+  negocio como casillas de verificación libres — puede marcar ninguna,
+  una o varias, sin reglas de obligatoriedad ni agrupación.
+
+MIGRACIÓN SQL APLICADA PARA LLEGAR A LA VERSIÓN 3:
+
+    -- Elimina políticas y tablas del modelo anterior (versión 2)
+    drop policy if exists "lectura publica de grupos_opciones" on grupos_opciones;
+    drop policy if exists "lectura publica de opciones" on opciones;
+    drop policy if exists "dueño gestiona grupos_opciones de su negocio" on grupos_opciones;
+    drop policy if exists "dueño gestiona opciones de su negocio" on opciones;
+
+    drop table if exists opciones;
+    drop table if exists grupos_opciones;
+
+    -- Nueva tabla plana de adiciones
+    create table adiciones (
+      id uuid primary key default gen_random_uuid(),
+      negocio_id uuid not null references negocios(id),
+      nombre text not null,
+      descripcion text,
+      precio numeric not null default 0,
+      imagen_url text,
+      creado_en timestamptz not null default now()
+    );
+
+    alter table adiciones enable row level security;
+
+    create policy "lectura publica de adiciones"
+    on adiciones for select
+    using (true);
+
+    create policy "dueño gestiona adiciones de su negocio"
+    on adiciones for all
+    using (negocio_id = (auth.jwt() -> 'app_metadata' ->> 'negocio_id')::uuid)
+    with check (
+      negocio_id = (auth.jwt() -> 'app_metadata' ->> 'negocio_id')::uuid
+      and (auth.jwt() -> 'app_metadata' ->> 'rol') = 'dueño'
+    );
+
+NOTA: a diferencia de usuarios_admin (sección 13), esta vez la tabla
+nueva se creó CON sus políticas de RLS desde el mismo momento en que se
+creó la tabla, aplicando la lección aprendida.
+
+DATOS PERDIDOS EN LA MIGRACIÓN: al borrar las tablas grupos_opciones y
+opciones, cualquier grupo de adiciones de prueba creado en las versiones
+1 o 2 se perdió — había que volver a crearlo en el nuevo formato (solo
+nombre + precio, sin grupo).
+
+CAMBIOS EN EL CÓDIGO (frontend), acumulados de las dos migraciones:
+- useGruposOpciones.js → useAdiciones.js (versión 2) → useAdiciones.js
+  reescrito como CRUD plano sobre la tabla adiciones (versión 3).
+- Nueva sección de admin "Adiciones" (/admin/adiciones): primero con
+  catálogo de grupos, ahora con catálogo plano de ítems individuales
+  (FormularioAdicion.jsx / TablaAdiciones.jsx, mismo patrón que
+  Productos).
+- OpcionesProducto.jsx: pasó de checkboxes agrupados con reglas, a una
+  lista simple de checkboxes independientes y opcionales.
+
+
+15. TABLA variantes_producto (variantes obligatorias por producto)
+--------------------------------------------------------------------
+QUÉ ES: opciones que representan versiones distintas de UN MISMO producto,
+donde el cliente debe elegir una y el precio depende de cuál elige.
+Ejemplos: un granizado en tamaño Pequeño/Mediano/Grande (precio distinto
+por tamaño), o un cuate en sabor Limón/Cereza/Mango.
+
+DIFERENCIA CLAVE CON adiciones (sección 6): una adición es opcional, se
+puede marcar ninguna/una/varias, y es del catálogo general del negocio
+(cualquier producto puede usar cualquier adición). Una variante es
+obligatoria (hay que elegir una si el producto tiene variantes), es
+específica de UN producto (no de un catálogo general), y cambia el precio
+final en vez de sumarse a él.
+
+CÓMO FUNCIONA CADA CAMPO:
+- negocio_id: a qué negocio pertenece (para RLS, igual que las demás
+  tablas — aunque también se podría deducir vía producto_id, se guarda
+  directo para mantener el mismo patrón de seguridad usado en todo el
+  proyecto).
+- producto_id: a qué producto pertenece esta variante (on delete cascade:
+  si se borra el producto, se borran sus variantes).
+- grupo: nombre de la dimensión de variación (ej. "Tamaño", "Sabor").
+  Permite que, si en el futuro un producto necesita más de un tipo de
+  variante a la vez (ej. Tamaño Y Sabor), se puedan distinguir. Por
+  defecto 'Variante' si no se necesita agrupar.
+- nombre: el valor de la variante (ej. "Pequeño", "Limón").
+- precio: precio FINAL del producto cuando se elige esta variante — no es
+  un adicional que se suma, reemplaza el precio de la tabla productos.
+- disponible: true/false, para ocultar una variante puntual sin borrarla
+  (ej. se acabó el sabor mango) sin afectar las demás variantes del mismo
+  producto.
+- orden: para controlar en qué orden se muestran las variantes en la
+  interfaz.
+
+CÓMO SE USA: si productos.tiene_variantes = true (ver sección 5), el
+frontend debe mostrar las filas de variantes_producto de ese producto y
+OBLIGAR a elegir una antes de poder agregar al carrito (a diferencia de
+las adiciones, que son opcionales). El precio mostrado del producto pasa
+a depender de la variante elegida — con ninguna elegida todavía, se
+muestra "Desde $X" usando el precio más bajo entre sus variantes
+disponibles. Si tiene_variantes = false, el producto funciona como
+siempre, con su precio normal de productos.precio.
+
+SCRIPT SQL APLICADO:
+
+    create table variantes_producto (
+      id uuid primary key default gen_random_uuid(),
+      negocio_id uuid not null references negocios(id) on delete cascade,
+      producto_id uuid not null references productos(id) on delete cascade,
+      grupo text not null default 'Variante',
+      nombre text not null,
+      precio numeric not null,
+      disponible boolean not null default true,
+      orden int not null default 0,
+      creado_en timestamptz not null default now()
+    );
+
+    create index idx_variantes_producto_producto on variantes_producto(producto_id);
+    create index idx_variantes_producto_negocio on variantes_producto(negocio_id);
+
+    alter table variantes_producto enable row level security;
+
+    create policy "lectura publica de variantes_producto"
+    on variantes_producto for select
+    using (true);
+
+    create policy "dueño gestiona variantes de su negocio"
+    on variantes_producto for all
+    using (negocio_id = (auth.jwt() -> 'app_metadata' ->> 'negocio_id')::uuid)
+    with check (
+      negocio_id = (auth.jwt() -> 'app_metadata' ->> 'negocio_id')::uuid
+      and (auth.jwt() -> 'app_metadata' ->> 'rol') = 'dueño'
+    );
+
+Se creó CON sus políticas de RLS desde el momento de creación, siguiendo
+la lección aprendida en usuarios_admin (sección 12): nunca activar RLS sin
+políticas.
+
+CONSECUENCIA EN EL CÓDIGO:
+- Panel admin: en el formulario de producto, agregar una sección para
+  crear/editar/eliminar variantes de ese producto (nombre + precio +
+  disponible), similar al patrón ya usado con adiciones.
+- Carta pública y carta física: si el producto tiene variantes, mostrar
+  selector obligatorio (radio buttons, no checkboxes — solo se elige una)
+  antes de permitir agregarlo al carrito o de mostrar un precio fijo.
+- El carrito y el pedido (tabla pedidos, campo productos_detalle) deben
+  guardar qué variante se eligió por cada producto del pedido, igual que
+  ya guardan qué adiciones se marcaron.
+
+
+16. TABLA productos_categorias (un producto en varias categorías)
+--------------------------------------------------------------------
+QUÉ ES: tabla intermedia (relación "muchos a muchos") entre productos y
+categorias. Cada fila dice "este producto pertenece a esta categoría".
+Reemplaza a la antigua columna productos.categoria_id, que solo permitía
+UNA categoría por producto.
+
+PARA QUÉ: que un mismo producto aparezca en varias categorías a la vez
+(ej. un aguardiente en "Alcohol" y en "Combos") sin duplicarlo, y que
+desde el panel se pueda agregar, cambiar o quitar la categoría de muchos
+productos al mismo tiempo.
+
+CÓMO FUNCIONA CADA CAMPO:
+- producto_id: el producto (on delete cascade: si se borra el producto,
+  se borran sus filas aquí).
+- categoria_id: la categoría (on delete cascade: si se borra la
+  categoría, el producto simplemente deja de estar en ella).
+- negocio_id: a qué negocio pertenece la fila — mismo patrón de RLS que
+  el resto de tablas.
+- creado_en: fecha de creación.
+- primary key (producto_id, categoria_id): un producto no puede estar dos
+  veces en la misma categoría.
+
+INTEGRIDAD ENTRE NEGOCIOS: las llaves foráneas son COMPUESTAS
+(producto_id, negocio_id) → productos(id, negocio_id) y
+(categoria_id, negocio_id) → categorias(id, negocio_id). Así la propia
+base de datos garantiza que el producto, la categoría y la fila sean del
+MISMO negocio — nadie puede meter un producto suyo en una categoría de
+otro negocio, aunque manipule la petición. Para eso se agregó un
+unique (id, negocio_id) en productos y en categorias (no cambia nada de
+los datos: id ya es único por sí solo).
+
+REGLAS DE VISIBILIDAD EN LA CARTA (decididas con el dueño):
+- Dentro de una categoría se muestran los productos que tienen fila aquí
+  con esa categoría.
+- En "Todas", un producto aparece si al menos UNA de sus categorías está
+  activa y visible en esa carta, o si no tiene ninguna categoría. Si una
+  categoría se desactiva u oculta, el producto deja de salir dentro de
+  ella pero sigue en sus otras categorías activas.
+- Desactivar una categoría YA NO desactiva sus productos en cascada (eso
+  era lo de 2026-09-29): ahora solo la oculta; al reactivarla todo vuelve
+  como estaba.
+
+FUNCIÓN reemplazar_categorias_productos(productos[], categorias[]):
+deja a cada producto de la lista con EXACTAMENTE las categorías de la
+lista (borra las que tenía e inserta las nuevas) en una sola transacción:
+si algo falla, no queda ningún producto sin categorías a medias. Se usa
+al editar un producto y en la acción masiva "Cambiar categoría". Es
+SECURITY INVOKER (el valor por defecto): corre con los permisos de quien
+la llama, así que el RLS de abajo se sigue aplicando igual que si se
+hiciera desde el panel. Solo la puede ejecutar un usuario autenticado.
+
+PASO 1 — SCRIPT SQL (correrlo ANTES de desplegar el código nuevo; la app
+actual sigue funcionando porque no se borra nada todavía):
+
+    -- Restricciones para las llaves compuestas (id ya es único).
+    alter table productos  add constraint productos_id_negocio_key  unique (id, negocio_id);
+    alter table categorias add constraint categorias_id_negocio_key unique (id, negocio_id);
+
+    create table productos_categorias (
+      producto_id  uuid not null,
+      categoria_id uuid not null,
+      negocio_id   uuid not null references negocios(id) on delete cascade,
+      creado_en    timestamptz not null default now(),
+      primary key (producto_id, categoria_id),
+      foreign key (producto_id, negocio_id)
+        references productos(id, negocio_id) on delete cascade,
+      foreign key (categoria_id, negocio_id)
+        references categorias(id, negocio_id) on delete cascade
+    );
+
+    create index idx_productos_categorias_categoria on productos_categorias(categoria_id);
+    create index idx_productos_categorias_negocio on productos_categorias(negocio_id);
+
+    alter table productos_categorias enable row level security;
+
+    create policy "lectura publica de productos_categorias"
+    on productos_categorias for select
+    using (true);
+
+    create policy "dueño gestiona productos_categorias de su negocio"
+    on productos_categorias for all to authenticated
+    using (
+      negocio_id = (auth.jwt() -> 'app_metadata' ->> 'negocio_id')::uuid
+      and (auth.jwt() -> 'app_metadata' ->> 'rol') = 'dueño'
+    )
+    with check (
+      negocio_id = (auth.jwt() -> 'app_metadata' ->> 'negocio_id')::uuid
+      and (auth.jwt() -> 'app_metadata' ->> 'rol') = 'dueño'
+    );
+
+    create policy "Empleados con permiso gestionan productos_categorias"
+    on productos_categorias for all to authenticated
+    using (
+      negocio_id = (auth.jwt() -> 'app_metadata' ->> 'negocio_id')::uuid
+      and exists (
+        select 1 from usuarios_admin ua
+        where ua.negocio_id = productos_categorias.negocio_id
+          and ua.numero = split_part(auth.jwt() ->> 'email', '.', 1)
+          and ua.activo = true and ua.puede_productos = true
+      )
+    )
+    with check (
+      negocio_id = (auth.jwt() -> 'app_metadata' ->> 'negocio_id')::uuid
+      and exists (
+        select 1 from usuarios_admin ua
+        where ua.negocio_id = productos_categorias.negocio_id
+          and ua.numero = split_part(auth.jwt() ->> 'email', '.', 1)
+          and ua.activo = true and ua.puede_productos = true
+      )
+    );
+
+    -- Copia la categoría actual de cada producto a la tabla nueva.
+    insert into productos_categorias (producto_id, categoria_id, negocio_id)
+    select id, categoria_id, negocio_id
+    from productos
+    where categoria_id is not null;
+
+    create or replace function reemplazar_categorias_productos(
+      p_productos uuid[],
+      p_categorias uuid[]
+    )
+    returns void
+    language plpgsql
+    security invoker
+    set search_path = public
+    as $$
+    begin
+      delete from productos_categorias where producto_id = any(p_productos);
+
+      insert into productos_categorias (producto_id, categoria_id, negocio_id)
+      select distinct p.id, c.id, p.negocio_id
+      from productos p
+      cross join unnest(p_categorias) as c(id)
+      where p.id = any(p_productos);
+    end;
+    $$;
+
+    revoke execute on function reemplazar_categorias_productos(uuid[], uuid[]) from public, anon;
+    grant execute on function reemplazar_categorias_productos(uuid[], uuid[]) to authenticated;
+
+    -- Por si el trigger viejo que bloqueaba desactivar categorías con
+    -- productos (sección 4) siguiera existiendo: lee productos.categoria_id,
+    -- que se borra en el paso 2.
+    drop trigger if exists trg_bloquear_desactivar_categoria on categorias;
+    drop function if exists bloquear_desactivar_categoria_con_productos();
+
+Se creó CON sus políticas de RLS desde el momento de creación (lección de
+la sección 12), con el mismo patrón app_metadata para el dueño y el mismo
+patrón de permisos granulares (puede_productos) que ya usa la tabla
+productos para los empleados (sección 3). Las políticas exigen el rol
+"dueño" también en el USING (no solo en el WITH CHECK), para que borrar
+filas esté igual de protegido que crearlas.
+
+ESTADO: el paso 1 YA SE CORRIÓ (2026-10-07), dentro de una transacción
+(begin/commit) y con "on conflict do nothing" en la copia inicial — así,
+si algo fallaba no quedaba nada a medias, y volver a correr la copia no
+duplica filas. Verificado después: los 6 productos que tenían
+categoria_id quedaron con su fila en productos_categorias, y un visitante
+sin sesión no puede ejecutar reemplazar_categorias_productos (responde
+"permission denied", código 42501).
+
+PASO 2 — SCRIPT SQL (correrlo DESPUÉS de que el código nuevo esté
+desplegado y probado; antes, la versión vieja de la app todavía lee esta
+columna):
+
+    alter table productos drop column categoria_id;
+
+Si Postgres se niega porque algún objeto depende de la columna, el error
+dice cuál es — revisarlo antes de forzar nada (no usar "cascade" a
+ciegas).
+
+CONSECUENCIA EN EL CÓDIGO:
+- useProductos.js trae las categorías de cada producto con
+  productos_categorias(categoria:categorias(...)) y las deja en
+  producto.categorias (arreglo). Crear/editar un producto guarda sus
+  categorías; además hay acciones masivas (activar, desactivar, eliminar,
+  agregar/cambiar/quitar categorías) sobre varios productos a la vez.
+- Formulario de producto: casillas para elegir una o varias categorías.
+- Carta pública y carta física: filtran por categoría con la tabla nueva
+  y aplican las reglas de visibilidad de arriba.
+- useCategorias.js: "eliminar categoría" cuenta los productos en
+  productos_categorias; "desactivar" ya no toca los productos.
+
+
+17. TABLA ofertas (sección propia de ofertas en el panel)
+--------------------------------------------------------------------
+QUÉ ES: el catálogo de ofertas de cada negocio. Antes había UNA sola
+oferta guardada como JSON en la columna negocio_config.oferta (tabla
+negocio_config: descripción, dirección, horario, redes y oferta del
+negocio, que se edita en /admin/negocio — no estaba documentada en este
+archivo). Ahora cada oferta es una fila y tiene su propia sección en el
+panel (/admin/ofertas): crear, editar, eliminar, activar y desactivar.
+
+PARA QUÉ: tener varias ofertas preparadas, activar varias a la vez y
+elegir cuál se ve en la tarjeta de Inicio de la carta. Además, cada
+oferta puede tener un TIPO con comportamiento propio programado en el
+código (ver "TIPOS DE OFERTA" abajo), como "domicilio gratis desde $X".
+
+CÓMO FUNCIONA CADA CAMPO:
+- id, negocio_id: como en el resto de tablas.
+- titulo: texto principal de la tarjeta de Inicio (obligatorio, máximo
+  38 caracteres — el diseño de la tarjeta no admite más).
+- subtitulo: texto secundario opcional (máximo 22 caracteres).
+- tipo: qué hace la oferta además de mostrarse. 'informativa' (solo se
+  muestra) o 'domicilio_gratis'. Es texto libre a propósito, sin check
+  de valores: los tipos se definen en el código (src/lib/tiposOferta.js)
+  y agregar uno nuevo no requiere tocar la base de datos.
+- configuracion: JSON con los parámetros del tipo que elige el dueño.
+  Ej. domicilio_gratis → {"monto_minimo": 70000}.
+- activa: si la oferta está vigente. SOLO UNA puede estar activa por
+  negocio (cambio del 2026-10-08, pedido del dueño; antes podían ser
+  varias). La activa es la única que aplica su comportamiento (ej. la
+  barra de domicilio gratis del carrito y la línea en WhatsApp): si se
+  desactiva domicilio gratis, la barra desaparece.
+- en_inicio: se mantiene, pero ahora siempre coincide con la activa
+  (activar una la pone en Inicio). Ya no hay botón "Mostrar en Inicio".
+- creado_en / actualizado_en.
+
+REGLAS QUE GARANTIZA LA BASE DE DATOS:
+- Solo UNA oferta en Inicio por negocio: índice único parcial
+  ofertas_una_en_inicio sobre (negocio_id) donde en_inicio = true.
+- Una oferta en Inicio tiene que estar activa: check
+  (not en_inicio or activa). Al desactivarla, el panel le quita también
+  en_inicio.
+- Largo de título y subtítulo: checks de 38 y 22 caracteres.
+
+FUNCIÓN poner_oferta_en_inicio(oferta): quita en_inicio a la que lo
+tuviera y se lo pone a la elegida, en una sola transacción (son dos
+UPDATE separados porque el índice único se revisa fila por fila: con uno
+solo podía chocar en medio del cambio). SECURITY INVOKER, igual que la
+función de la sección 16: respeta el RLS de quien la llama.
+
+RLS:
+- Lectura pública solo de las ofertas ACTIVAS: una oferta en borrador o
+  apagada no se le muestra a nadie fuera del panel.
+- El dueño del negocio lee todas las suyas y es el único que escribe
+  (mismo patrón app_metadata, con el rol en USING y en WITH CHECK). Los
+  empleados no gestionan ofertas, igual que la pantalla Negocio.
+
+PASO 1 — SCRIPT SQL (correrlo ANTES de desplegar el código nuevo; la app
+actual sigue funcionando porque no se borra nada):
+
+    begin;
+
+    create table ofertas (
+      id             uuid primary key default gen_random_uuid(),
+      negocio_id     uuid not null references negocios(id) on delete cascade,
+      titulo         text not null check (char_length(titulo) between 1 and 38),
+      subtitulo      text check (subtitulo is null or char_length(subtitulo) <= 22),
+      tipo           text not null default 'informativa',
+      configuracion  jsonb not null default '{}'::jsonb,
+      activa         boolean not null default false,
+      en_inicio      boolean not null default false,
+      creado_en      timestamptz not null default now(),
+      actualizado_en timestamptz not null default now(),
+      constraint ofertas_en_inicio_activa check (not en_inicio or activa)
+    );
+
+    create index idx_ofertas_negocio on ofertas(negocio_id);
+    create unique index ofertas_una_en_inicio on ofertas(negocio_id) where en_inicio;
+
+    alter table ofertas enable row level security;
+
+    create policy "lectura publica de ofertas activas"
+    on ofertas for select
+    using (activa = true);
+
+    create policy "dueño gestiona ofertas de su negocio"
+    on ofertas for all to authenticated
+    using (
+      negocio_id = (auth.jwt() -> 'app_metadata' ->> 'negocio_id')::uuid
+      and (auth.jwt() -> 'app_metadata' ->> 'rol') = 'dueño'
+    )
+    with check (
+      negocio_id = (auth.jwt() -> 'app_metadata' ->> 'negocio_id')::uuid
+      and (auth.jwt() -> 'app_metadata' ->> 'rol') = 'dueño'
+    );
+
+    create or replace function poner_oferta_en_inicio(p_oferta uuid)
+    returns void
+    language plpgsql
+    security invoker
+    set search_path = public
+    as $$
+    declare
+      v_negocio uuid;
+    begin
+      select negocio_id into v_negocio from ofertas where id = p_oferta;
+      if v_negocio is null then
+        raise exception 'La oferta no existe.';
+      end if;
+
+      update ofertas set en_inicio = false, actualizado_en = now()
+      where negocio_id = v_negocio and en_inicio and id <> p_oferta;
+
+      update ofertas set en_inicio = true, activa = true, actualizado_en = now()
+      where id = p_oferta;
+    end;
+    $$;
+
+    revoke execute on function poner_oferta_en_inicio(uuid) from public, anon;
+    grant execute on function poner_oferta_en_inicio(uuid) to authenticated;
+
+    -- Copia la oferta que hoy vive en negocio_config.oferta (si tiene título).
+    insert into ofertas (negocio_id, titulo, subtitulo, activa, en_inicio)
+    select negocio_id,
+           left(trim(oferta ->> 'titulo'), 38),
+           nullif(left(trim(coalesce(oferta ->> 'subtitulo', '')), 22), ''),
+           coalesce((oferta ->> 'activa')::boolean, false),
+           coalesce((oferta ->> 'activa')::boolean, false)
+    from negocio_config
+    where coalesce(trim(oferta ->> 'titulo'), '') <> '';
+
+    commit;
+
+ESTADO: el paso 1 YA SE CORRIÓ (2026-10-08). Verificado después: la
+oferta que había en negocio_config ("Combos estrella") quedó en ofertas
+activa y en Inicio, y un visitante sin sesión no puede ejecutar
+poner_oferta_en_inicio (responde "permission denied", código 42501).
+
+PASO 2 — SCRIPT SQL (DESPUÉS de desplegar y probar; antes, la versión
+vieja de la app todavía lee y escribe esta columna):
+
+    alter table negocio_config drop column oferta;
+
+TIPOS DE OFERTA (comportamiento en el código, src/lib/tiposOferta.js):
+- informativa: las ofertas que crea el dueño. Solo tienen título y
+  descripción (columna subtitulo) y solo se muestran en Inicio.
+- domicilio_gratis: OFERTA FIJA DEL SISTEMA (cambio del 2026-10-08,
+  pedido del dueño). Siempre existe una por negocio: el panel la crea
+  sola (inactiva, con $70.000) si el negocio no la tiene, y no se puede
+  eliminar, solo activar/desactivar. Lo único que el
+  dueño configura es el monto: configuracion {"monto_minimo": número}.
+  El título y la descripción de su tarjeta se arman solos con ese monto
+  ("Domicilio gratis" / "Compras desde $X") para que nunca queden
+  desactualizados. En el carrito aparece una barra que se va llenando
+  con el total del pedido ("Te faltan $X para el domicilio gratis"); al
+  llegar al monto, el mensaje de WhatsApp incluye la línea "Oferta
+  aplicada: Domicilio gratis (compras desde $X)". La app no cobra
+  domicilio por sí misma: la oferta es un aviso al cliente y al negocio,
+  que la respeta al coordinar la entrega.
+El dueño ya no elige tipo al crear una oferta (la primera versión del
+2026-10-08 tenía un selector de tipo; se quitó a pedido del dueño).
+
+REFUERZO OPCIONAL (2026-10-08) — una sola oferta de domicilio gratis por
+negocio. El código ya evita crear una segunda, pero con este índice lo
+garantiza la base de datos. Si en pruebas quedaron varias, la primera
+parte deja la más antigua como la de domicilio y convierte las demás en
+informativas (no borra nada):
+
+    begin;
+
+    update ofertas o
+    set tipo = 'informativa', configuracion = '{}'::jsonb
+    where o.tipo = 'domicilio_gratis'
+      and exists (
+        select 1 from ofertas o2
+        where o2.negocio_id = o.negocio_id
+          and o2.tipo = 'domicilio_gratis'
+          and (o2.creado_en, o2.id) < (o.creado_en, o.id)
+      );
+
+    create unique index ofertas_un_domicilio_gratis
+    on ofertas(negocio_id) where tipo = 'domicilio_gratis';
+
+    commit;
+
+UNA SOLA OFERTA ACTIVA (2026-10-08) — sin cambio obligatorio en la base
+de datos. El panel (useOfertas.js) lo hace en dos pasos: primero
+desactiva (y quita de Inicio) las demás ofertas activas del negocio, y
+después llama a poner_oferta_en_inicio sobre la elegida, que la deja
+activa y en Inicio. Crear una oferta "activa" la inserta inactiva y
+luego la activa por ese mismo camino. La carta, además, solo usa UNA
+oferta aunque en la tabla queden varias activas de antes de esta regla
+(la que está en Inicio; si ninguna, la más reciente).
+
+REFUERZO OPCIONAL — que la base de datos garantice una sola activa. El
+orden del panel (primero apaga las otras, luego enciende) ya respeta este
+índice. La primera parte limpia los negocios que hoy tengan varias
+activas: deja la que está en Inicio (o la más reciente) y apaga el resto.
+
+    begin;
+
+    update ofertas o
+    set activa = false, en_inicio = false, actualizado_en = now()
+    where o.activa
+      and exists (
+        select 1 from ofertas o2
+        where o2.negocio_id = o.negocio_id
+          and o2.activa
+          and o2.id <> o.id
+          and (o2.en_inicio, o2.creado_en, o2.id) > (o.en_inicio, o.creado_en, o.id)
+      );
+
+    create unique index ofertas_una_activa on ofertas(negocio_id) where activa;
+
+    commit;
+
+CONSECUENCIA EN EL CÓDIGO:
+- Nueva sección /admin/ofertas (solo dueño). /admin/negocio ya no tiene
+  la tarjeta de oferta.
+- useNegocioConfig.js deja de leer/escribir negocio_config.oferta.
+- La carta lee las ofertas activas y usa solo una (ofertaActiva): para
+  la tarjeta de Inicio y para el carrito y WhatsApp. Sin oferta activa
+  no hay tarjeta ni barra.
+
+
+18. PRECIO DISTINTO EN LA CARTA FÍSICA (productos y variantes_producto)
+--------------------------------------------------------------------
+QUÉ CAMBIA (2026-10-08, pedido del dueño): un producto puede tener un
+precio distinto para consumir en el local (carta física) que para
+domicilios. Ej. un litro de aguardiente a $50.000 en domicilio y a
+$80.000 en el local. Es OPCIONAL: por defecto ambas cartas usan el mismo
+precio.
+
+COLUMNAS NUEVAS:
+- productos.precio_carta_fisica: precio en la carta física. NULL (el
+  valor por defecto) = la carta física usa productos.precio y
+  productos.precio_oferta, igual que domicilios.
+- productos.precio_oferta_carta_fisica: precio con descuento en la carta
+  física (opcional). Solo tiene sentido si precio_carta_fisica tiene
+  valor: lo exige un check.
+- variantes_producto.precio_carta_fisica: precio de esa variante en la
+  carta física. NULL = mismo precio que domicilios. (Las variantes no
+  tienen precio de oferta, ni en domicilios ni en el local.)
+
+Ambas cartas siguen teniendo la opción de descuento: domicilios con
+precio_oferta y la carta física con precio_oferta_carta_fisica.
+
+POR QUÉ COLUMNAS NULLABLE Y NO "COPIAR EL PRECIO": si se copiara el
+precio de domicilios en precio_carta_fisica, al cambiar después el precio
+de domicilios la carta física quedaría con el viejo sin que nadie lo
+note. Con NULL = "el mismo", solo se separan los productos que el dueño
+decidió separar.
+
+RLS: no cambia. Son columnas de tablas que ya tienen sus políticas
+(lectura pública y escritura del negocio, secciones 5, 11 y 15).
+
+SCRIPT SQL (correrlo ANTES de desplegar el código nuevo: la app nueva
+pide estas columnas al cargar los productos y sin ellas falla; la app
+actual sigue funcionando con ellas porque solo se agregan):
+
+    begin;
+
+    alter table productos
+      add column precio_carta_fisica numeric,
+      add column precio_oferta_carta_fisica numeric;
+
+    alter table productos
+      add constraint chk_precio_carta_fisica
+        check (precio_carta_fisica is null or precio_carta_fisica >= 0),
+      add constraint chk_oferta_carta_fisica
+        check (
+          precio_oferta_carta_fisica is null
+          or (precio_carta_fisica is not null and precio_oferta_carta_fisica >= 0)
+        );
+
+    alter table variantes_producto
+      add column precio_carta_fisica numeric
+        check (precio_carta_fisica is null or precio_carta_fisica >= 0);
+
+    commit;
+
+ESTADO: YA SE CORRIÓ (2026-10-08). Verificado después: las tres
+columnas responden en la API, incluida la consulta completa de productos
+con variantes_producto(precio, precio_carta_fisica, disponible) que usa
+la app.
+
+CONSECUENCIA EN EL CÓDIGO:
+- Formulario de producto: switch "Precio diferente en la carta física"
+  (apagado por defecto = mismo precio). Al encenderlo se copian los
+  precios de domicilios como punto de partida y aparecen dos bloques,
+  Domicilios y Carta física, cada uno con precio y precio con descuento.
+  Con variantes, cada fila tiene precio de domicilios y de carta física
+  (vacío = mismo precio). Apagarlo y guardar vuelve a dejar NULL.
+- Carta física (lista y detalle): usa lib/preciosCartaFisica.js para
+  mostrar el precio del local. La carta de domicilios, el carrito y los
+  pedidos no cambian (siguen con precio / precio_oferta).
+- useProductos.js trae variantes_producto(precio, precio_carta_fisica,
+  disponible) y guarda precio_carta_fisica de cada variante.
+- Lista de productos del admin: etiqueta "Local $X" en los que tienen
+  precio distinto.
+
+
+19. ETIQUETA DE PRODUCTO EN INICIO (productos.etiqueta) — PROPUESTA
+--------------------------------------------------------------------
+QUÉ CAMBIA (2026-10-21, rediseño de Inicio): las tarjetas de "Los más
+pedidos" pueden llevar una etiqueta en la esquina: "MÁS VENDIDO"
+(amarilla) o "NUEVO" (menta). Hoy no existe ningún dato para eso; el
+carrusel en sí sale de la columna destacado, que ya existía (sección 5).
+
+POR QUÉ UNA COLUMNA DE TEXTO CON CHECK (y no dos booleanas): un producto
+lleva como máximo una etiqueta, y con un solo campo no puede quedar
+marcado como "nuevo" y "más vendido" a la vez. El check limita los
+valores a los que el código sabe mostrar; NULL = sin etiqueta. No toca
+RLS: la columna hereda las políticas que ya tiene productos.
+
+SCRIPT SQL (se puede correr ANTES o DESPUÉS de desplegar: el código ya
+desplegado lee productos con select *, así que sin la columna
+simplemente no muestra etiquetas, y con ella las muestra sin otro
+cambio):
+
+    alter table productos
+      add column etiqueta text
+        check (etiqueta is null or etiqueta in ('mas_vendido', 'nuevo'));
+
+    -- Ejemplo para marcar un producto mientras no exista el campo en el panel:
+    -- update productos set etiqueta = 'mas_vendido' where id = '<id del producto>';
+
+ESTADO: PENDIENTE — propuesto, todavía no se ha corrido.
+
+CONSECUENCIA EN EL CÓDIGO:
+- components/inicio/CarruselMasPedidos.jsx ya lee producto.etiqueta
+  ('mas_vendido' → "Más vendido", 'nuevo' → "Nuevo"); cualquier otro
+  valor o NULL no muestra nada.
+- Pendiente (siguiente paso, si se aprueba): un selector "Etiqueta" en
+  el formulario de producto del admin. Mientras tanto se marca desde el
+  editor de tablas de Supabase o con el update de ejemplo.
+
+
+20. ADICIONES PEDIDAS SOLAS EN EL MENÚ (negocio_config.adiciones_en_menu)
+--------------------------------------------------------------------
+TABLA AFECTADA: negocio_config (columna nueva). pedidos no cambia de
+esquema, solo el contenido de productos_detalle.
+
+QUÉ CAMBIÓ (2026-10-21, pedido del dueño): las adiciones, además de
+marcarse dentro de un producto, se pueden pedir solas desde el Menú de
+la carta de domicilios (ej. unas gomitas sin granizado). Se activa con
+un interruptor general en Admin → Adiciones, que guarda:
+
+- adiciones_en_menu: boolean, default false. Con false todo sigue igual
+  que antes; con true aparece la pestaña "Adiciones" de última en el
+  filtro del Menú y, en "Todas", las adiciones al final de la lista.
+  Solo salen las adiciones disponibles y visibles en domicilios.
+
+POR QUÉ UNA COLUMNA DEL NEGOCIO Y NO UNA POR ADICIÓN: el dueño eligió un
+interruptor general (muestra u oculta todas juntas). Cuál adición se ve
+ya lo deciden disponible y visible_domicilios de cada una.
+
+SCRIPT SQL (correrlo ANTES de desplegar el código: la carta y el panel
+piden esta columna al leer negocio_config):
+
+    alter table negocio_config
+      add column adiciones_en_menu boolean not null default false;
+
+No hacen falta políticas nuevas: la lectura pública y la escritura del
+dueño (y de empleados con puede_negocio, sección 3) ya cubren la tabla.
+
+ESTADO: YA SE CORRIÓ — el dueño lo ejecutó el 2026-10-21; verificado con una
+consulta de solo lectura (la columna responde).
+
+CONSECUENCIA EN EL CÓDIGO:
+- hooks/useNegocioConfig.js lee adiciones_en_menu.
+- pages/admin/Adiciones.jsx: interruptor "Mostrar adiciones en el menú"
+  (solo lo puede mover quien tiene permiso de Negocio, igual que la RLS;
+  los demás ven si está activado).
+- pages/Carta.jsx + components/menu/AdicionListaItem.jsx: pestaña y
+  sección "Adiciones" siempre de últimas; el buscador también las
+  encuentra (después de los productos).
+- hooks/useCarrito.js (agregarAdicion): la adición es su propia línea
+  del carrito, sin variante ni opciones, y no se puede "Modificar".
+- pedidos.productos_detalle: la línea de una adición sola va con
+  producto_id null, adicion_id y tipo 'adicion' (además de nombre,
+  cantidad, precio_base y subtotal como cualquier línea). El panel de
+  pedidos y el mensaje de WhatsApp la muestran como una línea más.
+
+21. TABLA suscripciones_push (notificaciones push de pedidos nuevos)
+--------------------------------------------------------------------
+TABLA AFECTADA: suscripciones_push (tabla nueva). No cambia ninguna otra
+tabla ni la RLS de otras tablas.
+
+QUÉ ES (2026-10-26, pedido del dueño): guarda, por cada celular o
+computador donde alguien del panel activó "Notificaciones", la
+suscripción push de ese navegador. Con ella la Edge Function
+notificar-pedido-nuevo puede avisar de un pedido nuevo aunque el panel
+esté cerrado o el celular bloqueado. El aviso dentro del panel
+(useAvisoPedidos) solo funciona con el panel abierto en pantalla.
+
+CÓMO FUNCIONA CADA CAMPO:
+- id: identificador de la fila.
+- negocio_id: el negocio de la sesión que activó las notificaciones.
+- usuario_id: el uid del usuario en Auth (auth.users.id). OJO: no es
+  usuarios_admin.id. El dueño se crea a mano y su fila en usuarios_admin
+  puede tener otro id. Por eso la Edge Function no cruza por id: va de
+  usuario_id → usuario de Auth → número del correo interno → fila de
+  usuarios_admin (negocio_id + numero), el mismo criterio que toda la RLS
+  del proyecto (ver sección 3).
+- endpoint (unique): la dirección del servicio push de ese navegador. Es
+  única porque identifica al dispositivo: el panel guarda con upsert por
+  endpoint, así que reactivar no duplica filas.
+- p256dh, auth: las claves públicas del navegador con las que se cifra
+  el mensaje. No son secretas para el servidor, pero nadie más que el
+  dueño de la suscripción debe poder leerlas (de ahí la RLS).
+- user_agent: el navegador y dispositivo, solo para reconocer la fila
+  si hay que revisarla a mano.
+- creado_en: fecha de creación.
+
+RLS: cada usuario solo ve, crea, actualiza y borra sus propias filas
+(usuario_id = auth.uid()). Las políticas se crearon junto con la tabla,
+como exige la regla de la sección 11. Desde el navegador nadie puede
+leer las suscripciones de otro usuario ni las de todo el negocio. Eso
+solo lo hace la Edge Function, con service_role.
+
+SCRIPT SQL: lo corrió el dueño directamente en Supabase. El texto exacto
+no está en el repositorio; lo siguiente es la estructura equivalente
+según lo que describió (columnas verificadas el 2026-10-26 con una
+consulta de solo lectura: la tabla responde con todas ellas y, sin
+sesión, devuelve vacío por la RLS). Si el script real difiere en algún
+detalle (nombres de las políticas, por ejemplo), conviene reemplazar
+este bloque por el original:
+
+    create table suscripciones_push (
+      id uuid primary key default gen_random_uuid(),
+      negocio_id uuid not null references negocios(id) on delete cascade,
+      usuario_id uuid not null references auth.users(id) on delete cascade,
+      endpoint text not null unique,
+      p256dh text not null,
+      auth text not null,
+      user_agent text,
+      creado_en timestamptz not null default now()
+    );
+
+    alter table suscripciones_push enable row level security;
+
+    create policy "Cada usuario ve sus suscripciones push"
+    on suscripciones_push for select to authenticated
+    using (usuario_id = auth.uid());
+
+    create policy "Cada usuario crea sus suscripciones push"
+    on suscripciones_push for insert to authenticated
+    with check (
+      usuario_id = auth.uid()
+      and negocio_id = (auth.jwt() -> 'app_metadata' ->> 'negocio_id')::uuid
+    );
+
+    create policy "Cada usuario actualiza sus suscripciones push"
+    on suscripciones_push for update to authenticated
+    using (usuario_id = auth.uid())
+    with check (usuario_id = auth.uid());
+
+    create policy "Cada usuario borra sus suscripciones push"
+    on suscripciones_push for delete to authenticated
+    using (usuario_id = auth.uid());
+
+ESTADO: YA SE CORRIÓ — el dueño lo ejecutó el 2026-10-26; verificado con
+una consulta de solo lectura (la tabla y sus columnas responden).
+
+LO QUE NO ES SQL PERO HACE FALTA (configurado por el dueño):
+- Secretos de la Edge Function: VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY,
+  VAPID_SUBJECT y PUSH_WEBHOOK_SECRET (ya cargados).
+- VITE_VAPID_PUBLIC_KEY en Vercel (ya cargada): la misma clave pública.
+- Un Database Webhook en INSERT de pedidos que llame a la función con el
+  header x-webhook-secret (pasos en CHANGELOG.md, 2026-10-26 (12)).
+
+CONSECUENCIA EN EL CÓDIGO:
+- supabase/functions/notificar-pedido-nuevo/index.ts: la llama el
+  webhook. Valida x-webhook-secret (401 si no coincide) y toma el
+  negocio_id del pedido insertado. Con service_role lee las suscripciones
+  del negocio y deja solo las de usuarios activos que sean dueño o tengan
+  puede_pedidos. Envía con web-push (VAPID) y borra la fila si el
+  servicio push responde 404 o 410.
+- src/lib/notificacionesPush.js: suscribir (upsert por endpoint con
+  usuario_id y negocio_id de la sesión), desuscribir (borra la fila por
+  endpoint y cancela en el navegador) y desuscribirAlCerrarSesion.
+- src/components/admin/Notificaciones.jsx (Inicio del panel, solo con
+  permiso de Pedidos): activar y desactivar en este dispositivo.
+- src/hooks/useAuth.js (cerrarSesion): antes del signOut borra la
+  suscripción de este dispositivo. El borrado necesita la sesión por la
+  RLS, y así otra persona que entre en el mismo celular no recibe avisos
+  de la cuenta anterior.
+- public/push-handler.js + vite.config.js (workbox.importScripts): el
+  service worker del panel muestra la notificación y, al tocarla, enfoca
+  el panel o abre /admin/pedidos.
+
+
+22. TABLA sabores (catálogo de sabores que se eligen al pedir) + cantidad
+    de sabores por producto/variante
+--------------------------------------------------------------------
+TABLAS AFECTADAS: sabores (tabla nueva), variantes_producto (2 columnas
+nuevas), productos (1 columna nueva), usuarios_admin (1 permiso nuevo).
+pedidos no cambia de esquema, solo el contenido de productos_detalle.
+
+QUÉ ES (2026-10-29, pedido del dueño del negocio): un catálogo de
+sabores por negocio (ej. Fresa, Maracuyá, Mango, Tussi, Mora) que varios
+productos comparten. Lo que cambia entre productos es CUÁNTOS sabores se
+escogen, y eso depende del tamaño:
+- Granizado Pequeño / Mediano / Grande → 1 sabor cada uno.
+- Nevera tamaño A → 2 sabores; tamaño B → 4 sabores.
+- Un producto sin sabores (comida, gaseosa) → 0, no pide nada.
+Los sabores se pueden repetir (una nevera de 4 puede ser Mango, Mango,
+Mora, Mora) y ninguno cambia el precio: el precio lo pone la variante.
+
+DIFERENCIA CON variantes_producto Y adiciones:
+- variante: propia de UN producto, se elige una, define el precio.
+- adición: catálogo del negocio, opcional, se suma al precio.
+- sabor: catálogo del negocio, OBLIGATORIO en la cantidad exacta que pide
+  el producto/variante, se puede repetir, NO cambia el precio.
+Por eso no se reutilizó ninguna de las dos: con variantes, el día que se
+acaba el mango habría que apagarlo en cada producto; con adiciones no se
+puede exigir "exactamente 4" ni repetir.
+
+MULTI-NEGOCIO (la base la comparten todos los negocios):
+- Todo viene APAGADO por defecto: cantidad_sabores = 0 en productos y
+  variantes, y ningún negocio tiene filas en sabores. Un negocio que no
+  usa sabores no ve ningún cambio, ni en la carta ni en el panel (el
+  formulario de producto solo muestra los campos de sabores si el
+  negocio tiene al menos un sabor creado).
+- Cada negocio tiene su propio catálogo (negocio_id + RLS igual que el
+  resto). Para activarlo en otro negocio basta con crear sus sabores en
+  Admin → Sabores y poner "Sabores a elegir" en sus productos/variantes.
+- Cada tabla y columna nueva lleva un COMMENT en la base con esta misma
+  explicación, para que se vea desde el editor de Supabase.
+- Si en el futuro un negocio necesita listas de sabores distintas por
+  producto (ej. sabores de granizado ≠ sabores de limonada), se agrega
+  una tabla de grupos sin tocar lo que ya hay: hoy cada negocio tiene
+  UNA lista, compartida por todos sus productos.
+
+CÓMO FUNCIONA CADA CAMPO:
+sabores
+- negocio_id: a qué negocio pertenece (RLS).
+- nombre: único por negocio sin importar mayúsculas (índice único).
+- descripcion: opcional, ej. "Whisky y ron" para Tussi.
+- disponible: interruptor del día. Apagado, el sabor desaparece de TODOS
+  los productos del negocio a la vez.
+- orden: orden en que se muestran (luego por nombre).
+variantes_producto
+- descripcion: opcional, lo que trae ese tamaño (ej. "16 oz + gomitas").
+- cantidad_sabores: cuántos sabores se eligen con esa variante (0-12).
+productos
+- cantidad_sabores: lo mismo para un producto SIN variantes (0-12). Si
+  el producto tiene variantes, manda la de la variante elegida.
+usuarios_admin
+- puede_sabores: permiso de empleado para la sección Sabores (default
+  false, como los demás salvo pedidos). Pensado para que un empleado
+  pueda prender/apagar sabores cada día sin tocar productos.
+
+RLS: sabores se crea CON sus políticas en el mismo script (regla de la
+sección 11): lectura pública, escritura del dueño y de empleados activos
+con puede_sabores, todo vía app_metadata (nunca user_metadata). Las
+columnas nuevas de las otras tablas heredan las políticas que ya tienen.
+
+SCRIPT SQL (correrlo ANTES de desplegar el código nuevo: la carta pide
+cantidad_sabores al cargar los productos y el panel pide puede_sabores al
+iniciar sesión; sin las columnas, ambos fallan):
+
+    begin;
+
+    create table sabores (
+      id uuid primary key default gen_random_uuid(),
+      negocio_id uuid not null references negocios(id) on delete cascade,
+      nombre text not null,
+      descripcion text,
+      disponible boolean not null default true,
+      orden int not null default 0,
+      creado_en timestamptz not null default now()
+    );
+
+    create unique index sabores_negocio_nombre_unico on sabores (negocio_id, lower(nombre));
+    create index idx_sabores_negocio on sabores (negocio_id);
+
+    alter table sabores enable row level security;
+
+    create policy "lectura publica de sabores"
+    on sabores for select
+    using (true);
+
+    create policy "dueño gestiona sabores de su negocio"
+    on sabores for all to authenticated
+    using (negocio_id = (auth.jwt() -> 'app_metadata' ->> 'negocio_id')::uuid)
+    with check (
+      negocio_id = (auth.jwt() -> 'app_metadata' ->> 'negocio_id')::uuid
+      and (auth.jwt() -> 'app_metadata' ->> 'rol') = 'dueño'
+    );
+
+    alter table usuarios_admin
+      add column puede_sabores boolean not null default false;
+
+    create policy "Empleados con permiso gestionan sabores"
+    on sabores for all to authenticated
+    using (
+      negocio_id = (auth.jwt() -> 'app_metadata' ->> 'negocio_id')::uuid
+      and exists (
+        select 1 from usuarios_admin ua
+        where ua.negocio_id = sabores.negocio_id
+          and ua.numero = split_part(auth.jwt() ->> 'email', '.', 1)
+          and ua.activo = true and ua.puede_sabores = true
+      )
+    )
+    with check (
+      negocio_id = (auth.jwt() -> 'app_metadata' ->> 'negocio_id')::uuid
+      and exists (
+        select 1 from usuarios_admin ua
+        where ua.negocio_id = sabores.negocio_id
+          and ua.numero = split_part(auth.jwt() ->> 'email', '.', 1)
+          and ua.activo = true and ua.puede_sabores = true
+      )
+    );
+
+    alter table variantes_producto
+      add column descripcion text,
+      add column cantidad_sabores int not null default 0
+        check (cantidad_sabores between 0 and 12);
+
+    alter table productos
+      add column cantidad_sabores int not null default 0
+        check (cantidad_sabores between 0 and 12);
+
+    comment on table sabores is
+      'Catálogo de sabores de cada negocio. Opcional: un negocio sin filas aquí no ve ningún cambio. Se eligen al pedir un producto/variante con cantidad_sabores > 0, se pueden repetir y no cambian el precio. disponible apaga el sabor en todos los productos a la vez. Ver explicacion-script-bd.txt sección 22.';
+    comment on column variantes_producto.descripcion is
+      'Opcional: lo que trae esa variante (ej. tamaño Grande: 32 oz + gomitas).';
+    comment on column variantes_producto.cantidad_sabores is
+      'Cuántos sabores (tabla sabores) elige el cliente con esta variante. 0 = no pide sabores (valor por defecto).';
+    comment on column productos.cantidad_sabores is
+      'Cuántos sabores (tabla sabores) elige el cliente si el producto NO tiene variantes. 0 = no pide sabores (valor por defecto). Con variantes manda variantes_producto.cantidad_sabores.';
+    comment on column usuarios_admin.puede_sabores is
+      'Permiso de empleado para la sección Sabores del panel (prender/apagar sabores del día).';
+
+    commit;
+
+ESTADO: YA SE CORRIÓ — el dueño lo ejecutó el 2026-10-29; verificado con
+una consulta de solo lectura (sabores, productos.cantidad_sabores y
+variantes_producto.descripcion/cantidad_sabores responden, y un insert
+anónimo en sabores es rechazado por la RLS).
+
+CONSECUENCIA EN EL CÓDIGO:
+- hooks/useSabores.js: CRUD del catálogo (mismo patrón que useAdiciones).
+- /admin/sabores (pages/admin/Sabores.jsx): lista con interruptor de
+  disponible por sabor, crear/editar/eliminar. Sección y permiso nuevos
+  en lib/seccionesAdmin.js (PERMISOS_EMPLEADO → aparece solo en
+  /admin/usuarios, useAuth y el menú).
+- FormularioProducto: por variante, descripción y "Sabores a elegir";
+  sin variantes, un "Sabores a elegir" del producto. Solo se muestran si
+  el negocio tiene sabores creados.
+- useProductos: el embed liviano trae variantes_producto(...,
+  cantidad_sabores) para que la carta sepa si debe abrir el detalle.
+- Carta (OpcionesProducto): después de la variante, "Elige N sabores"
+  con contador por sabor (o radio si N = 1). No se puede agregar al
+  carrito hasta completar N. Solo salen los sabores disponibles.
+- Carrito, WhatsApp, pedidos.productos_detalle (campo nuevo
+  sabores_elegidos: arreglo de nombres, repetidos si se repiten) y el
+  panel de pedidos muestran los sabores, agrupados ("Mango x2, Mora").
+  Los pedidos viejos no tienen el campo y se muestran igual que antes.
+- Carta física (detalle): bloque "Sabores" con los disponibles y su
+  descripción, y la descripción de cada variante.
+
+
+23. PRODUCTO LIGADO A UN SABOR (productos.sabor_id)
+--------------------------------------------------------------------
+TABLAS AFECTADAS: productos (1 columna nueva), sabores (1 restricción
+unique nueva, solo para la llave compuesta). No cambia ninguna política.
+
+QUÉ ES (2026-10-29, pedido del dueño del negocio): un producto puede
+"ser" de un sabor (ej. "Granizado de Tussi" ligado al sabor Tussi). Si
+ese sabor se apaga en Admin → Sabores, el producto deja de salir en las
+dos cartas; al volver a prenderlo, el producto vuelve solo.
+
+POR QUÉ NO SE ESCRIBE EN productos.disponible: se calcula al mostrar la
+carta (producto visible = disponible Y, si tiene sabor, sabor
+disponible). Si se apagara disponible automáticamente, al prender el
+sabor no se sabría si el producto estaba apagado a mano por otra razón
+(ej. se acabó el vaso) y se prendería por error. Así los dos
+interruptores son independientes.
+
+DIFERENCIA CON cantidad_sabores (sección 22): cantidad_sabores hace que
+el cliente ELIJA sabores; sabor_id dice de qué sabor ES el producto. Son
+independientes y se pueden usar juntos o por separado.
+
+MULTI-NEGOCIO: sabor_id es NULL por defecto, así que ningún producto
+existente cambia. La llave foránea es compuesta (sabor_id, negocio_id)
+→ sabores(id, negocio_id), mismo patrón que productos_categorias
+(sección 16): un producto solo puede apuntar a un sabor de SU negocio.
+"on delete set null (sabor_id)" (Postgres 15+): si se elimina el sabor,
+el producto queda sin sabor (y visible), sin tocar su negocio_id.
+
+SCRIPT SQL (correrlo ANTES de desplegar el código nuevo: la carta pide
+sabor_id y el sabor embebido al cargar los productos):
+
+    begin;
+
+    alter table sabores
+      add constraint sabores_id_negocio_unico unique (id, negocio_id);
+
+    alter table productos
+      add column sabor_id uuid;
+
+    alter table productos
+      add constraint productos_sabor_fk
+        foreign key (sabor_id, negocio_id)
+        references sabores (id, negocio_id)
+        on delete set null (sabor_id);
+
+    create index idx_productos_sabor on productos (sabor_id);
+
+    comment on column productos.sabor_id is
+      'Opcional: el sabor del que ES este producto (ej. Granizado de Tussi). Si ese sabor está apagado (sabores.disponible = false), las cartas ocultan el producto; no se modifica productos.disponible. Ver explicacion-script-bd.txt sección 23.';
+
+    commit;
+
+ESTADO: YA SE CORRIÓ — el dueño lo ejecutó el 2026-10-29; verificado con
+una consulta de solo lectura (sabor_id responde y la consulta completa de
+la carta con sabor:sabores!productos_sabor_fk(...) funciona).
+
+CONSECUENCIA EN EL CÓDIGO:
+- useProductos: trae sabor:sabores(id, nombre, disponible) embebido; con
+  soloDisponibles (las cartas) descarta los productos cuyo sabor está
+  apagado. El panel los sigue viendo todos.
+- FormularioProducto: selector "Sabor del producto (opcional)", visible
+  solo si el negocio tiene sabores.
+- Lista de productos del admin: etiqueta "Sabor X apagado" en los que hoy
+  no salen por su sabor.
+- Variantes: el campo descripcion (sección 22) se muestra en el
+  formulario como "Comentario".
+
+
+RESUMEN GENERAL
+--------------------------------------------------------------------
+La base de datos completa (negocios, usuarios_admin, categorias,
+productos, adiciones como catálogo plano por negocio, pedidos, y el
+almacenamiento de imágenes) está construida y con el RLS correctamente
+configurado en todas las tablas. La seguridad de la plataforma descansa
+en tres pilares: que el negocio_id de cada sesión esté en app_metadata
+(no en user_metadata); que cada tabla con RLS activado tenga sus
+políticas creadas desde el mismo momento en que se crea la tabla; y que
+las operaciones que tocan varios sistemas a la vez (como crear un
+usuario) se hagan de forma atómica en el servidor. El modelo de adiciones
+pasó por tres iteraciones antes de llegar al diseño final: un catálogo
+plano, simple, de ítems opcionales por negocio — sin grupos ni reglas de
+selección, reflejando exactamente cómo un cliente real arma su pedido.

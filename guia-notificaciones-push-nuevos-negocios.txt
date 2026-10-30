@@ -1,0 +1,236 @@
+GUÍA: NOTIFICACIONES PUSH DE PEDIDOS NUEVOS PARA UN NEGOCIO NUEVO
+===================================================================
+Probado y funcionando en el proyecto base el 2026-10-26; ZÉRO ya trae el código incluido.
+
+QUÉ HACE
+Cuando entra un pedido, el celular del dueño (y de los empleados con permiso
+de Pedidos) recibe una notificación "Pedido nuevo · Cliente · $ total", aunque
+la app esté cerrada. Al tocarla abre /admin/pedidos.
+
+CÓMO FUNCIONA (en una frase)
+El administrador toca "Activar notificaciones" en el Inicio del panel y su
+celular queda guardado en la tabla suscripciones_push. Cuando entra un pedido,
+un Database Webhook de Supabase llama a la Edge Function notificar-pedido-nuevo,
+que envía la notificación a los celulares de ese negocio.
+
+DESDE CERO O REUTILIZANDO?
+- Si el negocio nuevo usa el MISMO proyecto de Supabase que los otros:
+  la tabla, la función, los secretos y el webhook YA existen y sirven para todos
+  los negocios (la función filtra por negocio_id, no se cruzan). Solo haces los
+  pasos 5 (variable en Vercel) y 6 (código del panel), y luego la prueba (7).
+- Si el negocio nuevo tiene su PROPIO proyecto de Supabase:
+  haz todos los pasos, del 1 al 7.
+
+-------------------------------------------------------------------
+PASO 1. TABLA EN SUPABASE (SQL Editor)  [solo proyecto Supabase nuevo]
+-------------------------------------------------------------------
+Importante: usuario_id NO lleva llave foránea a usuarios_admin. Si el usuario
+dueño se creó a mano, su id puede no coincidir con su id de Auth, y esa llave
+haría fallar la activación. La función identifica al usuario por el número de
+teléfono, no por ese id.
+
+    begin;
+
+    create table suscripciones_push (
+      id uuid primary key default gen_random_uuid(),
+      negocio_id uuid not null references negocios(id) on delete cascade,
+      usuario_id uuid not null,
+      endpoint text not null unique,
+      p256dh text not null,
+      auth text not null,
+      user_agent text,
+      creado_en timestamptz not null default now()
+    );
+
+    create index suscripciones_push_negocio_idx on suscripciones_push (negocio_id);
+
+    alter table suscripciones_push enable row level security;
+
+    create policy "Cada usuario gestiona sus suscripciones push"
+    on suscripciones_push for all to authenticated
+    using (
+      usuario_id = auth.uid()
+      and negocio_id = (auth.jwt() -> 'app_metadata' ->> 'negocio_id')::uuid
+    )
+    with check (
+      usuario_id = auth.uid()
+      and negocio_id = (auth.jwt() -> 'app_metadata' ->> 'negocio_id')::uuid
+    );
+
+    commit;
+
+Comprobar: select count(*) from suscripciones_push;  (debe dar 0, sin error)
+
+Documentar la tabla en explicacion-script-bd.txt (regla de CLAUDE.md).
+
+-------------------------------------------------------------------
+PASO 2. LLAVES VAPID Y SECRETOS  [solo proyecto Supabase nuevo]
+-------------------------------------------------------------------
+2.1 En una terminal (PowerShell) genera las llaves:
+        npx web-push generate-vapid-keys
+    Si pregunta si instalar el paquete, escribe y. Te da una Public Key y una
+    Private Key.
+
+2.2 Genera la clave del webhook (una línea larga de letras y números):
+        node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+    Copia el RESULTADO, no el comando.
+
+2.3 Guarda los tres valores en un bloc de notas (Supabase no vuelve a mostrar
+    los secretos después de guardarlos).
+
+2.4 En Supabase: Edge Functions > Secrets. Crea estos cuatro (sin comillas ni
+    espacios al inicio o al final):
+        VAPID_PUBLIC_KEY     = la llave pública
+        VAPID_PRIVATE_KEY    = la llave privada
+        VAPID_SUBJECT        = https://dirección-web-del-negocio.vercel.app
+                               (o mailto:correo@dominio.com)
+        PUSH_WEBHOOK_SECRET  = la línea larga del paso 2.2
+    Toca Save y comprueba que los cuatro aparezcan en "Custom secrets".
+
+REGLA DE ORO: nunca pegues la llave privada ni la clave del webhook en un chat,
+en el repositorio o en Vercel. Solo en Supabase y en tu bloc de notas. Si se
+filtran, genera un par nuevo y actualiza todo.
+
+-------------------------------------------------------------------
+PASO 3. DESPLEGAR LA FUNCIÓN  [solo proyecto Supabase nuevo]
+-------------------------------------------------------------------
+La función vive en el repositorio: supabase/functions/notificar-pedido-nuevo
+(copiarla al repositorio del negocio nuevo si no está).
+
+Windows no trae el programa de Supabase; se usa con npx (no instalar nada).
+En la terminal, dentro de la carpeta del proyecto (la que tiene /supabase):
+
+    npx supabase login
+    npx supabase functions deploy notificar-pedido-nuevo --no-verify-jwt --project-ref ID_DEL_PROYECTO
+
+- ID_DEL_PROYECTO: la parte de la dirección de Supabase después de /project/
+  (ej. supabase.com/dashboard/project/ESTE_ES_EL_ID). También está en Project
+  Settings > General. No dejes escrito "TU_REF".
+- Si se queja de Docker, agrega --use-api al final. El aviso "Docker is not
+  running" se puede ignorar.
+- --no-verify-jwt es obligatorio: el webhook no manda un token de usuario; la
+  función se protege con la clave x-webhook-secret.
+
+-------------------------------------------------------------------
+PASO 4. CREAR EL WEBHOOK  [solo proyecto Supabase nuevo; uno solo]
+-------------------------------------------------------------------
+Supabase > Integrations > Database Webhooks > Webhooks > Create webhook.
+(La primera vez instala la extensión pg_net; es normal y gratis.)
+
+    Nombre:   notificar_pedido_nuevo   (sin espacios)
+    Tabla:    public.pedidos
+    Eventos:  solo Insert
+    Tipo:     Supabase Edge Functions
+    Función:  notificar-pedido-nuevo
+              CUIDADO: por defecto aparece otra (crear-usuario-admin).
+              Cámbiala.
+    Headers:  deja Content-type y Authorization como vienen.
+              Agrega uno nuevo:
+                  x-webhook-secret  =  el valor de PUSH_WEBHOOK_SECRET
+    Guarda con "Create webhook".
+
+-------------------------------------------------------------------
+PASO 5. VARIABLE EN VERCEL  [en CADA proyecto de Vercel]
+-------------------------------------------------------------------
+Vercel > el proyecto del negocio > Settings > Environment Variables > Add.
+    Nombre:   VITE_VAPID_PUBLIC_KEY       (exacto, en mayúsculas)
+    Valor:    la llave PÚBLICA (la misma que VAPID_PUBLIC_KEY de Supabase)
+    Entorno:  Production
+    Tipo:     Config (es pública)
+El triángulo naranja que avisa que las variables VITE_ se hacen públicas es
+normal; aquí es lo esperado.
+
+Vercel solo aplica las variables a los despliegues NUEVOS: después de guardar,
+ve a Deployments > los tres puntos del último > Redeploy (desmarca "Use
+existing Build Cache") y espera a que diga Ready.
+
+Verificación opcional: en la consola del navegador del sitio, el archivo
+principal de /assets debe contener una cadena de 87 caracteres que empieza por
+"B" (la llave pública). Si no está, la variable no entró al despliegue.
+
+-------------------------------------------------------------------
+PASO 6. CÓDIGO DEL PANEL (PWA + notificaciones)
+-------------------------------------------------------------------
+Requisito previo: el panel debe ser una PWA instalable (manifiesto propio en
+/admin, admin.html, service worker con scope /admin). Ya está hecho en este proyecto.
+
+Para un negocio nuevo clonado de este proyecto, el código ya viene incluido. Si no,
+pídele a Claude Code que lo replique "igual que en el repositorio de ZÉRO
+(commit 60b9ca3 y el CHANGELOG, entrada 2026-10-26 (12))". Incluye:
+    - public/push-handler.js (maneja el aviso y el toque sobre él)
+    - vite.config.js con workbox.importScripts apuntando a ese archivo
+    - el componente "Notificaciones" en el Inicio del panel
+      (botón Activar / Desactivar, estados en español)
+    - borrado de la suscripción al cerrar sesión
+    - la Edge Function supabase/functions/notificar-pedido-nuevo
+
+Qué hace la función, por si hay que ajustarla:
+    - Valida x-webhook-secret (401 si no coincide).
+    - Toma el negocio_id del pedido que entró (nunca de otro lado).
+    - Avisa solo a usuarios activos de ese negocio: dueño, o empleado con
+      puede_pedidos. Los busca por número de teléfono (como las políticas RLS).
+    - El aviso lleva solo nombre y total (sin teléfono ni dirección, porque se
+      ven en pantalla bloqueada).
+    - Borra las suscripciones vencidas (errores 404 y 410).
+
+-------------------------------------------------------------------
+PASO 7. PRUEBA EN EL CELULAR
+-------------------------------------------------------------------
+ANDROID (Chrome):
+ 1. Instala la app: abre /admin en Chrome > menú > Instalar app.
+ 2. Ábrela, inicia sesión y ve al Inicio.
+ 3. Toca "Activar notificaciones" y acepta el permiso.
+ 4. En Supabase > Table Editor > suscripciones_push debe aparecer 1 fila.
+ 5. Cierra la app por completo.
+ 6. Haz un pedido de prueba desde la carta (en otro dispositivo).
+ 7. Debe llegar "Pedido nuevo · Cliente · $ total".
+
+IPHONE:
+ - Solo funciona con iOS 16.4 o superior y con la app INSTALADA desde Safari
+   (Compartir > Añadir a pantalla de inicio). Abre la app desde ese icono, no
+   desde Safari, y toca "Activar notificaciones" desde ahí.
+ - Apple puede retrasar o limitar avisos; no hay garantía total.
+
+-------------------------------------------------------------------
+SI NO LLEGA: DIAGNÓSTICO EN ORDEN
+-------------------------------------------------------------------
+1. ¿suscripciones_push tiene filas? (Table Editor)
+   - Vacía: el celular nunca se registró. Causas vistas:
+       a) Falta VITE_VAPID_PUBLIC_KEY en Vercel, o se agregó después del
+          último despliegue (hay que redesplegar).
+       b) El celular sigue con la versión vieja de la app instalada:
+          desinstala la app, vuelve a instalarla desde Chrome y entra.
+       c) No se tocó "Activar notificaciones" o se negó el permiso (Ajustes del
+          celular > Aplicaciones > la app > Notificaciones).
+2. Edge Functions > notificar-pedido-nuevo > Invocations: ¿hay una llamada
+   al hacer el pedido?
+   - No hay llamada: el webhook no existe, apunta a otra función, o no está
+     en Insert de public.pedidos.
+   - Responde 401: el secreto del header x-webhook-secret no coincide con
+     PUSH_WEBHOOK_SECRET.
+   - Responde 200 pero no llega: revisa Logs; puede ser que no haya
+     suscripciones de ese negocio o que el usuario no tenga puede_pedidos.
+3. La llave pública de Vercel debe ser PAREJA de VAPID_PUBLIC_KEY y
+   VAPID_PRIVATE_KEY de Supabase. Si usaste un par en un lado y otro par en el
+   otro, falla. Lo más limpio: generar un par nuevo y actualizar los TRES
+   lugares (los dos secretos de Supabase y la variable de Vercel), y redesplegar.
+4. Error al activar en el celular relacionado con una llave foránea: el
+   usuario_id no está en usuarios_admin (dueño creado a mano). Solución:
+       alter table suscripciones_push drop constraint suscripciones_push_usuario_id_fkey;
+   (con el SQL de este documento ya no existe esa llave).
+5. Cierre de sesión sin pasar por "Cerrar sesión" (borrar datos del navegador)
+   y otra persona activa en el mismo celular: el guardado falla. Desinstalar y
+   reinstalar la app.
+6. Modo ahorro de batería o app silenciada en el celular: pueden bloquear avisos.
+
+-------------------------------------------------------------------
+RESUMEN RÁPIDO (CHECKLIST)
+-------------------------------------------------------------------
+[ ] 1. SQL de suscripciones_push (solo Supabase nuevo)
+[ ] 2. Llaves VAPID + 4 secretos en Supabase (solo Supabase nuevo)
+[ ] 3. npx supabase functions deploy ... --no-verify-jwt (solo Supabase nuevo)
+[ ] 4. Webhook en public.pedidos / Insert / función correcta / x-webhook-secret
+[ ] 5. VITE_VAPID_PUBLIC_KEY en Vercel + Redeploy sin caché
+[ ] 6. Código del panel y de la función en el repositorio del negocio
+[ ] 7. Prueba en Android (y iPhone instalado desde Safari)
+[ ] Documentar en CHANGELOG.md y explicacion-script-bd.txt

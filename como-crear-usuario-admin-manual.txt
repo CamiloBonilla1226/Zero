@@ -1,0 +1,123 @@
+CÓMO CREAR UN USUARIO ADMIN (DUEÑO) MANUALMENTE DESDE SUPABASE
+================================================================
+
+Este procedimiento es SOLO para crear el PRIMER dueño de cada negocio nuevo
+(el que luego podrá crear empleados desde el panel admin normalmente, usando
+la función crear-usuario-admin). No es necesario repetirlo para empleados —
+esos se crean directamente desde el panel admin una vez que el dueño existe.
+
+Se necesita hacer manual porque la Edge Function crear-usuario-admin exige
+que quien la llama ya sea un dueño autenticado — así que el primer dueño de
+cada negocio no tiene quién se lo cree, y hay que crearlo directamente en la
+base de datos.
+
+
+REQUISITO PREVIO: tener el ID del negocio
+----------------------------------------------------------------
+Si el negocio para el que se va a crear el dueño ya existe en la tabla
+"negocios", consigue su id con:
+
+    select id, nombre from negocios;
+
+Si el negocio todavía no existe, créalo primero (ajusta nombre, slug y
+whatsapp_contacto según corresponda):
+
+    insert into negocios (nombre, slug, whatsapp_contacto)
+    values ('ZÉRO', 'zero', 'TODO_WHATSAPP_ZERO')
+    returning id;
+
+Copia el id que te devuelva (un código largo tipo
+"8ea9a00c-f4aa-4360-b74a-2ccac581a8c7") — se usa en todos los pasos
+siguientes. En este documento aparece como EL_ID_DEL_NEGOCIO.
+
+
+PASO 1 — Crear el usuario en Authentication
+----------------------------------------------------------------
+1. Ir a Authentication → Users (menú lateral de Supabase).
+2. Clic en "Add user" → "Create new user".
+3. En el campo Email, escribir (reemplazando NUMERO por el número de
+   teléfono real que va a usar el dueño para iniciar sesión, y
+   EL_ID_DEL_NEGOCIO por el id copiado arriba):
+
+       NUMERO.EL_ID_DEL_NEGOCIO@interno.local
+
+   Ejemplo real:
+       3001234567.8ea9a00c-f4aa-4360-b74a-2ccac581a8c7@interno.local
+
+   Este formato de correo interno es el que usa el código del proyecto
+   para transformar el número de teléfono en un correo válido para
+   Supabase Auth (que internamente siempre requiere un correo, aunque el
+   usuario nunca lo vea ni lo use).
+
+4. En el campo Password, escribir una contraseña (mínimo 6 caracteres).
+   Esta es la contraseña real que el dueño va a usar para entrar al panel.
+5. Marcar la casilla "Auto Confirm User" (para que la cuenta quede activa
+   de inmediato, sin pedir verificación de correo).
+6. Dar clic en crear.
+
+
+PASO 2 — Asignar negocio_id y rol en app_metadata (por SQL)
+----------------------------------------------------------------
+Ir a SQL Editor y correr (reemplazando EL_ID_DEL_NEGOCIO y el correo por
+los datos reales usados en el Paso 1):
+
+    update auth.users
+    set raw_app_meta_data = raw_app_meta_data || '{"negocio_id": "EL_ID_DEL_NEGOCIO", "rol": "dueño"}'::jsonb
+    where email = 'NUMERO.EL_ID_DEL_NEGOCIO@interno.local';
+
+IMPORTANTE: esto debe ir en app_metadata (raw_app_meta_data), nunca en
+user_metadata. app_metadata es el único lugar que el usuario no puede
+modificar desde el navegador, y es lo que exigen las políticas de
+seguridad (RLS) del proyecto para saber a qué negocio pertenece cada
+usuario admin.
+
+Se puede verificar que quedó bien con:
+
+    select email, raw_app_meta_data
+    from auth.users
+    where email = 'NUMERO.EL_ID_DEL_NEGOCIO@interno.local';
+
+El resultado debe mostrar algo como:
+    {"rol":"dueño","provider":"email","providers":["email"],"negocio_id":"EL_ID_DEL_NEGOCIO"}
+
+
+PASO 3 — Crear la fila correspondiente en usuarios_admin
+----------------------------------------------------------------
+Esta tabla es la que usa el panel admin para mostrar la lista de usuarios
+del negocio (nombre/número, rol). La columna "nombre" es NOT NULL: sin ella el
+INSERT falla — es distinta de auth.users, que es la
+tabla interna de autenticación de Supabase. Ambas deben existir y
+coincidir en negocio_id y rol.
+
+    insert into usuarios_admin (negocio_id, numero, nombre, rol)
+    values ('EL_ID_DEL_NEGOCIO', 'NUMERO', 'NOMBRE_DEL_DUEÑO', 'dueño');
+
+Ejemplo real:
+
+    insert into usuarios_admin (negocio_id, numero, nombre, rol)
+    values ('8ea9a00c-f4aa-4360-b74a-2ccac581a8c7', '3001234567', 'Juan Pérez', 'dueño');
+
+
+PASO 4 — Probar el login
+----------------------------------------------------------------
+Entrar a la ruta del panel admin del proyecto (ej. /admin) e iniciar
+sesión con:
+- Número: el mismo NUMERO usado arriba (sin el correo interno, tal cual
+  lo escribiría un usuario real).
+- Contraseña: la que se puso en el Paso 1.
+
+Si todo quedó correcto, el login debe entrar directo al Dashboard del
+panel con permisos de dueño. Desde ahí, ese dueño ya puede crear
+empleados normalmente usando el botón correspondiente en la sección de
+Usuarios, sin necesitar ningún paso manual adicional — eso lo resuelve la
+función crear-usuario-admin automáticamente.
+
+
+RESUMEN — QUÉ SE HACE UNA SOLA VEZ VS. QUÉ SE REPITE
+----------------------------------------------------------------
+- Este procedimiento completo (Pasos 1 a 3) se repite UNA VEZ por cada
+  negocio nuevo que se dé de alta en la plataforma — es la forma de crear
+  el primer dueño de ese negocio.
+- Una vez que existe el primer dueño, TODOS los usuarios siguientes de ese
+  negocio (más dueños o empleados) se crean desde el panel admin mismo,
+  sin volver a tocar Supabase manualmente.
