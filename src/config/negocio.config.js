@@ -17,8 +17,9 @@ export const negocioConfig = {
   // ("Frase de inicio", columna negocio_config.descripcion).
   // TODO ZÉRO: frase propia del negocio (o escribirla desde /admin/negocio).
   lema: 'Paletas artesanales & granizados',
-  // Rótulo corto sobre la frase de Inicio: qué vende el negocio y dónde.
-  rubro: 'Paletas & granizados · Popayán',
+  // Rótulo corto junto al logo en Inicio: qué vende el negocio y dónde. Opcional (null = no
+  // se muestra): ZÉRO no lo usa porque su logo ya dice "Paletas artesanales & granizados".
+  rubro: null,
 
   // Número de WhatsApp del negocio, en formato internacional sin signos (ej. 573001234567).
   // Se usa para armar el link wa.me del checkout.

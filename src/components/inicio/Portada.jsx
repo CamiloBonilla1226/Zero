@@ -16,7 +16,7 @@ export function Portada({ lema, cargandoLema, horario }) {
       </div>
 
       <div className="portada__ficha">
-        <p className="portada__rubro">{negocioConfig.rubro}</p>
+        {negocioConfig.rubro && <p className="portada__rubro">{negocioConfig.rubro}</p>}
         {detalle && (
           <p className={`portada__estado portada__estado--${detalle.estado}`}>
             <span className="portada__estado-letrero">{detalle.estado === 'abierto' ? 'Abierto' : 'Cerrado'}</span>
