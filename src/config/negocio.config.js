@@ -11,9 +11,7 @@ export const NEGOCIO_ID_EJEMPLO = '00000000-0000-0000-0000-000000000000'
 
 export const negocioConfig = {
   // ID del negocio en Supabase (columna `negocios.id`). Reemplazar por el real.
-  // TODO ZÉRO: poner el UUID de la fila de ZÉRO en `negocios` (mientras siga el de ejemplo,
-  // supabaseClient.js avisa en consola y el login del panel falla).
-  negocioId: NEGOCIO_ID_EJEMPLO,
+  negocioId: '0c09f773-82c6-47c8-85e8-2fc909c7db1f',
   nombre: 'ZÉRO',
   // Frase bajo el logo en Inicio. Solo se usa si el dueño no escribió una en /admin/negocio
   // ("Frase de inicio", columna negocio_config.descripcion).
