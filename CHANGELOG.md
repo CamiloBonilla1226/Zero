@@ -3,6 +3,7 @@
 Todas las decisiones técnicas relevantes y funcionalidades implementadas en el proyecto base se registran aquí, en orden cronológico.
 
 ## 2026-10-29 — ZÉRO: proyecto nuevo a partir de la plantilla
+- **Logo de Inicio un poco más pequeño**: 170 px en celular, 200 px en tableta y 250 px en computador (antes 200/240/300 px), sigue centrado.
 - **Header solo con texto y más fino**: se quitó el logo del header de la carta; "ZÉRO" queda en Montserrat 300 (se agrega ese peso a la carga de Google Fonts), 1.125rem y espaciado 0.32em, más cerca del trazo fino del logo (pedido del dueño).
 - **Portada centrada**: el logo de Inicio va centrado arriba y más grande (200 px en celular, 240 px en tableta, 300 px en computador; antes 96/120/280 px a un lado), con el estado, la frase y los tubos centrados debajo. En computador la frase baja de tamaño (máx. 3.25rem) porque centrada bajo el logo ya no comparte fila con él.
 - **Sin rótulo junto al logo de Inicio**: `negocioConfig.rubro` pasa a ser opcional (`null` no muestra nada en `Portada.jsx`) y ZÉRO lo deja vacío, porque "Paletas & granizados · Popayán" repetía lo que ya dice el logo (pedido del dueño).

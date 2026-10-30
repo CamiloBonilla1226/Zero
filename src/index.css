@@ -3232,7 +3232,7 @@ body.body--con-nav-inferior .toast-contenedor {
 
 .portada__logo {
   grid-area: logo;
-  width: min(200px, 60vw);
+  width: min(170px, 50vw);
   aspect-ratio: 1;
   border-radius: 50%;
   overflow: hidden;
@@ -6682,7 +6682,7 @@ body.admin .notificaciones-push__boton--secundario:hover:not(:disabled) {
   }
 
   .portada__logo {
-    width: 240px;
+    width: 200px;
   }
 
   .portada__lema {
@@ -6957,7 +6957,7 @@ body.admin .notificaciones-push__boton--secundario:hover:not(:disabled) {
   }
 
   .portada__logo {
-    width: 300px;
+    width: 250px;
   }
 
   .portada__ficha {
