@@ -3,6 +3,7 @@
 Todas las decisiones técnicas relevantes y funcionalidades implementadas en el proyecto base se registran aquí, en orden cronológico.
 
 ## 2026-10-29 — ZÉRO: proyecto nuevo a partir de la plantilla
+- **Portada centrada**: el logo de Inicio va centrado arriba y más grande (200 px en celular, 240 px en tableta, 300 px en computador; antes 96/120/280 px a un lado), con el estado, la frase y los tubos centrados debajo. En computador la frase baja de tamaño (máx. 3.25rem) porque centrada bajo el logo ya no comparte fila con él.
 - **Sin rótulo junto al logo de Inicio**: `negocioConfig.rubro` pasa a ser opcional (`null` no muestra nada en `Portada.jsx`) y ZÉRO lo deja vacío, porque "Paletas & granizados · Popayán" repetía lo que ya dice el logo (pedido del dueño).
 - **Proyecto independiente ZÉRO** (Paletas artesanales & granizados, Popayán), copiado de la plantilla del negocio anterior con su código tal cual (solo los archivos versionados: sin `.git`, `node_modules`, `dist`, `.env.local` ni `supabase/.temp`, que apuntaba al proyecto de Supabase anterior). Repo propio `CamiloBonilla1226/zero`, rama `main`. Las entradas de abajo son el historial heredado de la plantilla.
 - **negocioId de ZÉRO**: `0c09f773-82c6-47c8-85e8-2fc909c7db1f`, la fila nueva de `negocios` en el Supabase compartido (cada negocio queda aislado por RLS con su `negocio_id`).

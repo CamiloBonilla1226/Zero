@@ -3218,22 +3218,24 @@ body.body--con-nav-inferior .toast-contenedor {
 }
 
 /* --- Inicio: portada ---
-   Celular: logo y ficha (rubro + estado) en una fila; debajo la frase grande y los tubos. */
+   Todo centrado en una columna: el logo grande arriba, la ficha (rubro + estado), la frase y
+   los tubos debajo. */
 .portada {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   grid-template-areas:
-    'logo ficha'
-    'lema lema'
-    'tubos tubos';
-  align-items: center;
-  column-gap: 16px;
-  padding-top: 8px;
+    'logo'
+    'ficha'
+    'lema'
+    'tubos';
+  justify-items: center;
+  text-align: center;
+  padding-top: 16px;
 }
 
 .portada__logo {
   grid-area: logo;
-  width: 96px;
+  width: min(200px, 60vw);
   aspect-ratio: 1;
   border-radius: 50%;
   overflow: hidden;
@@ -3256,7 +3258,13 @@ body.body--con-nav-inferior .toast-contenedor {
   min-width: 0;
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 10px;
+  margin-top: 20px;
+}
+
+.portada__ficha:empty {
+  display: none;
 }
 
 .portada__rubro {
@@ -3272,6 +3280,7 @@ body.body--con-nav-inferior .toast-contenedor {
   margin: 0;
   display: flex;
   flex-wrap: wrap;
+  justify-content: center;
   align-items: center;
   gap: 6px 10px;
   font-size: 0.8125rem;
@@ -6675,12 +6684,8 @@ body.admin .notificaciones-push__boton--secundario:hover:not(:disabled) {
     padding-top: var(--espacio-3);
   }
 
-  .portada {
-    column-gap: 24px;
-  }
-
   .portada__logo {
-    width: 120px;
+    width: 240px;
   }
 
   .portada__lema {
@@ -6921,8 +6926,7 @@ body.admin .notificaciones-push__boton--secundario:hover:not(:disabled) {
     padding-bottom: var(--espacio-6);
   }
 
-  /* Inicio: la portada ocupa todo el ancho, con la frase grande a la izquierda y el logo
-     encendido a la derecha; debajo la oferta, los más pedidos y las categorías, también a
+  /* Inicio: la portada ocupa todo el ancho, centrada (logo grande arriba, la frase debajo); debajo la oferta, los más pedidos y las categorías, también a
      todo el ancho; al final, los pasos y el cierre lado a lado. */
   .inicio {
     display: grid;
@@ -6952,35 +6956,26 @@ body.admin .notificaciones-push__boton--secundario:hover:not(:disabled) {
   }
 
   .portada {
-    grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-areas:
-      'ficha logo'
-      'lema logo'
-      'tubos logo';
-    align-items: start;
-    align-content: center;
-    column-gap: 64px;
     padding-top: 16px;
   }
 
   .portada__logo {
-    align-self: center;
-    width: 280px;
-    margin-right: 24px;
+    width: 300px;
   }
 
   .portada__ficha {
     flex-direction: row;
     flex-wrap: wrap;
+    justify-content: center;
     align-items: center;
     gap: 12px 24px;
   }
 
   .portada__lema {
-    max-width: 14ch;
-    margin-top: 28px;
-    font-size: clamp(3.5rem, 5.4vw, 4.75rem);
-    line-height: 0.98;
+    max-width: 24ch;
+    margin-top: 32px;
+    font-size: clamp(2.5rem, 3.6vw, 3.25rem);
+    line-height: 1.08;
   }
 
   .portada__tubos span:first-child {
