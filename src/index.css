@@ -3215,8 +3215,8 @@ body.body--con-nav-inferior .toast-contenedor {
 }
 
 /* --- Inicio: portada ---
-   Todo centrado en una columna: el logo grande arriba, la ficha (rubro + estado), la frase y
-   los tubos debajo. */
+   Una columna: el logo centrado arriba y, debajo, un bloque alineado a la izquierda con la
+   ficha (rubro + estado), la frase junto a un tubo dorado vertical y los tubos. */
 .portada {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -3225,13 +3225,13 @@ body.body--con-nav-inferior .toast-contenedor {
     'ficha'
     'lema'
     'tubos';
-  justify-items: center;
-  text-align: center;
+  justify-items: start;
   padding-top: 16px;
 }
 
 .portada__logo {
   grid-area: logo;
+  justify-self: center;
   width: min(170px, 50vw);
   aspect-ratio: 1;
   border-radius: 50%;
@@ -3255,9 +3255,9 @@ body.body--con-nav-inferior .toast-contenedor {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
-  margin-top: 20px;
+  margin-top: 28px;
 }
 
 .portada__ficha:empty {
@@ -3277,7 +3277,6 @@ body.body--con-nav-inferior .toast-contenedor {
   margin: 0;
   display: flex;
   flex-wrap: wrap;
-  justify-content: center;
   align-items: center;
   gap: 6px 10px;
   font-size: 0.8125rem;
@@ -3310,12 +3309,15 @@ body.body--con-nav-inferior .toast-contenedor {
 .portada__lema {
   grid-area: lema;
   margin: 28px 0 0;
+  padding-left: 14px;
+  /* Tubo dorado vertical a la izquierda de la frase (mismo lenguaje que los tubos de abajo). */
+  border-left: 2px solid var(--marca-dorado);
   font-family: var(--fuente-titulos);
   text-transform: uppercase;
-  font-weight: 500;
-  font-size: 2rem;
-  line-height: 1.12;
-  letter-spacing: 0.08em;
+  font-weight: 400;
+  font-size: 1.375rem;
+  line-height: 1.25;
+  letter-spacing: 0.1em;
   text-wrap: balance;
 }
 
@@ -6687,7 +6689,7 @@ body.admin .notificaciones-push__boton--secundario:hover:not(:disabled) {
 
   .portada__lema {
     margin-top: 36px;
-    font-size: 3.25rem;
+    font-size: 1.75rem;
   }
 
   .carrusel-pedidos__pista {
@@ -6963,16 +6965,16 @@ body.admin .notificaciones-push__boton--secundario:hover:not(:disabled) {
   .portada__ficha {
     flex-direction: row;
     flex-wrap: wrap;
-    justify-content: center;
     align-items: center;
     gap: 12px 24px;
   }
 
   .portada__lema {
-    max-width: 24ch;
-    margin-top: 32px;
-    font-size: clamp(2.5rem, 3.6vw, 3.25rem);
-    line-height: 1.08;
+    max-width: 22ch;
+    margin-top: 40px;
+    padding-left: 20px;
+    font-size: 2.125rem;
+    line-height: 1.2;
   }
 
   .portada__tubos span:first-child {
