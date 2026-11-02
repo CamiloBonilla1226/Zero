@@ -49,17 +49,25 @@ export function claveIcono(valor) {
   return EMOJI_A_ICONO[limpio] ?? null
 }
 
+// Cuántas casillas se pintan con `cantidad` ancladas: la mayor cantidad válida (2 o 4) que
+// alcance. Con 3 se muestran las 2 primeras; con 1 (o ninguna) no hay sección.
+export function cantidadAMostrar(cantidad) {
+  return Math.max(0, ...CANTIDADES_VALIDAS.filter((valida) => valida <= cantidad))
+}
+
 // De las categorías que ya se ven en la carta (activas, visibles en domicilios y con
-// productos), las ancladas con ícono. Si no son exactamente 2 o 4, Inicio no muestra la sección.
+// productos), las ancladas con ícono, recortadas a 2 o 4 en el orden de la carta.
 export function categoriasDeInicio(categoriasVisibles) {
   const ancladas = categoriasVisibles.filter((categoria) => categoria.en_inicio && categoria.emoji_inicio)
-  return CANTIDADES_VALIDAS.includes(ancladas.length) ? ancladas : []
+  return ancladas.slice(0, cantidadAMostrar(ancladas.length))
 }
 
 // Texto de estado para el panel, según cuántas hay ancladas.
 export function estadoAncladas(cantidad) {
   if (cantidad === 0) return 'Ninguna anclada: la sección de categorías no aparece en el inicio de la carta.'
   if (CANTIDADES_VALIDAS.includes(cantidad)) return `${cantidad} ancladas: se muestran en el inicio de la carta.`
+  const visibles = cantidadAMostrar(cantidad)
+  if (visibles > 0) return `${cantidad} ancladas: en el inicio se muestran solo las ${visibles} primeras (deben ser 2 o 4).`
   return `${cantidad} anclada${cantidad === 1 ? '' : 's'}: deben ser 2 o 4 para que la sección aparezca en el inicio.`
 }
 
