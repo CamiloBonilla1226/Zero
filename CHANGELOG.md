@@ -2,6 +2,9 @@
 
 Todas las decisiones técnicas relevantes y funcionalidades implementadas en el proyecto base se registran aquí, en orden cronológico.
 
+## 2026-11-06
+- **Script para borrar los pedidos de prueba** (`scripts/limpiar-pedidos-prueba.sql`): se corre en el SQL Editor de Supabase porque no existe política de `delete` en `pedidos` (los admins solo leen y cambian estado) y el proyecto no tiene `service_role`, así que la app no puede borrarlos. Va filtrado por el `negocio_id` de ZÉRO porque la base es compartida, y trae un paso previo de solo lectura para revisar la lista antes de borrar.
+
 ## 2026-11-02
 - **Categorías de Inicio con 3 ancladas**: antes, si no eran exactamente 2 o 4, la sección "Explora por categoría" desaparecía; ahora se toma la mayor cantidad válida que alcance (`cantidadAMostrar` en `lib/categoriasInicio.js`), así con 3 se muestran las 2 primeras en el orden de la carta. Con 1 sigue sin mostrarse, porque dejaría una casilla suelta en la cuadrícula de 2 columnas. El aviso del panel de Categorías explica que solo se ven las primeras (pedido del dueño).
 
