@@ -3,6 +3,7 @@
 Todas las decisiones técnicas relevantes y funcionalidades implementadas en el proyecto base se registran aquí, en orden cronológico.
 
 ## 2026-11-06
+- **Despliegues de Vercel fallaban con "Integration provisioning error"**: el proyecto tenía conectada una base de Supabase creada desde el Marketplace de Vercel (`supabase-cordovan-leaf`), suspendida en el plan gratuito; Vercel intenta prepararla antes de cada build y cancelaba el despliegue. La app no la usaba (se conecta a la base compartida `uocwfdbjqreczwmvxaxm` con `VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY`, puestas a mano; las variables `NEXT_PUBLIC_*`, `POSTGRES_*` y `SUPABASE_*` que inyectaba la integración no las lee nadie: las Edge Functions reciben las suyas de Supabase). Se desconectó del proyecto con `vercel integration resource disconnect` (la base no se borró) y se redesplegó. Si en el futuro se conecta otra integración de base de datos desde Vercel, revisar que no quede suspendida.
 - **Script para borrar los pedidos de prueba** (`scripts/limpiar-pedidos-prueba.sql`): se corre en el SQL Editor de Supabase porque no existe política de `delete` en `pedidos` (los admins solo leen y cambian estado) y el proyecto no tiene `service_role`, así que la app no puede borrarlos. Va filtrado por el `negocio_id` de ZÉRO porque la base es compartida, y trae un paso previo de solo lectura para revisar la lista antes de borrar.
 
 ## 2026-11-02
