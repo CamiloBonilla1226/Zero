@@ -1,6 +1,7 @@
 import { Interruptor } from './Interruptor'
 import { ImagenProducto } from '../menu/ImagenProducto'
 import { precioMinimo, variantesDisponibles } from '../../lib/variantes'
+import { etiquetaMaximoAdiciones } from '../../lib/adiciones'
 import { preciosCartaFisica, tienePrecioCartaFisica, varianteCartaFisica } from '../../lib/preciosCartaFisica'
 import { useMantenerPresionado } from '../../hooks/useMantenerPresionado'
 
@@ -35,6 +36,7 @@ export function TablaProductos({
     <ul className="lista-productos-admin">
       {productos.map((producto) => {
         const variantes = variantesDisponibles(producto)
+        const maximoAdiciones = etiquetaMaximoAdiciones(producto, variantes)
         const fisica = preciosCartaFisica(producto)
         const seleccionado = seleccionados.has(producto.id)
         const nombresCategorias = producto.categorias.map((categoria) => categoria.nombre).join(' · ')
@@ -83,6 +85,7 @@ export function TablaProductos({
                   </span>
                 )}
                 {producto.destacado && <span className="producto-admin-item__etiqueta">★ Destacado</span>}
+                {maximoAdiciones && <span className="producto-admin-item__etiqueta">{maximoAdiciones}</span>}
                 {!producto.disponible && (
                   <span className="producto-admin-item__etiqueta producto-admin-item__etiqueta--agotado">
                     Agotado

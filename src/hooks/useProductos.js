@@ -15,13 +15,14 @@ import { normalizarMaximoAdiciones } from '../lib/adiciones'
 // tarjeta y forzar el modal de selección obligatoria antes de agregar al carrito (ver
 // Carta.jsx/ProductoCard.jsx). El detalle completo (id, nombre, orden) se carga con
 // useVariantesProducto.js cuando el modal ya está abierto. `cantidad_sabores` va en el embed
-// para mostrar "Elige N sabores" en la lista sin abrir el producto (ver lib/sabores.js).
+// para mostrar "Elige N sabores" en la lista sin abrir el producto (ver lib/sabores.js), y
+// `cantidad_adiciones` para que el panel muestre el máximo de adiciones (ver lib/adiciones.js).
 // `sabor`: el sabor del que ES el producto (productos.sabor_id, opcional). Si está apagado, las
 // cartas no muestran el producto (ver productoSaborDisponible y la sección 23 del script).
 const SELECT_PRODUCTO_COMPLETO = `
   *,
   productos_categorias(categoria:categorias(id, nombre, activo, visible_domicilios, visible_carta_fisica)),
-  variantes_producto(precio, precio_carta_fisica, disponible, cantidad_sabores),
+  variantes_producto(precio, precio_carta_fisica, disponible, cantidad_sabores, cantidad_adiciones),
   sabor:sabores!productos_sabor_fk(id, nombre, disponible)
 `
 

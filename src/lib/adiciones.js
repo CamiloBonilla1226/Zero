@@ -32,3 +32,21 @@ export function normalizarMaximoAdiciones(valor) {
   if (Number.isNaN(numero)) return null
   return Math.min(MAX_ADICIONES, Math.max(0, numero))
 }
+
+// Etiqueta corta del máximo para la lista de productos del panel, o null si no hay nada que
+// avisar (sin límite, que es lo normal). Con variantes resume las de las variantes disponibles:
+// "Hasta 3 adiciones", "Hasta 2–3 adiciones", "Sin adiciones" o "Adiciones según variante".
+export function etiquetaMaximoAdiciones(producto, variantes = []) {
+  const etiquetaDe = (maximo) => (maximo === 0 ? 'Sin adiciones' : `Hasta ${maximo} ${maximo === 1 ? 'adición' : 'adiciones'}`)
+  if (variantes.length === 0) {
+    const maximo = cantidadAdiciones(producto, null)
+    return maximo === null ? null : etiquetaDe(maximo)
+  }
+  const maximos = variantes.map((v) => cantidadAdiciones(producto, v))
+  if (maximos.every((m) => m === null)) return null
+  if (maximos.some((m) => m === null)) return 'Adiciones según variante'
+  const menor = Math.min(...maximos)
+  const mayor = Math.max(...maximos)
+  if (menor === mayor) return etiquetaDe(menor)
+  return `Hasta ${menor}–${mayor} adiciones`
+}
