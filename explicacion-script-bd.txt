@@ -2168,9 +2168,10 @@ SCRIPT SQL: scripts/migracion-cantidad-adiciones.sql
     -- + comment on column de cada una
     commit;
 
-ESTADO: PENDIENTE — el dueño debe correrlo antes de desplegar el
-formulario de producto que guarda cantidad_adiciones (sin la columna,
-guardar un producto fallaría). La carta funciona sin la columna: lee
+ESTADO: YA SE CORRIÓ — el dueño lo ejecutó el 2026-11-09; verificado con
+una consulta de solo lectura (cantidad_adiciones responde en productos y
+variantes_producto, y la consulta de la carta con el embed
+variantes_producto(..., cantidad_adiciones) funciona). La carta funciona sin la columna: lee
 productos y variantes con select *, y si no viene la trata como "sin
 límite".
 
@@ -2189,6 +2190,9 @@ CONSECUENCIA EN EL CÓDIGO:
   variantes) y en cada variante; vacío = sin límite.
 - useProductos: guarda cantidad_adiciones del producto y de cada
   variante, y la trae en el embed liviano de variantes.
+- TablaProductos (lib/adiciones.js, etiquetaMaximoAdiciones): etiqueta
+  "Hasta 3 adiciones", "Hasta 2–3 adiciones", "Sin adiciones" o
+  "Adiciones según variante".
 
 RESUMEN GENERAL
 --------------------------------------------------------------------
