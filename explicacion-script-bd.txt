@@ -1938,6 +1938,116 @@ CONSECUENCIA EN EL CÓDIGO:
   formulario como "Comentario".
 
 
+24. MÉTODO DE PAGO EN EL CHECKOUT (efectivo o transferencia con
+    comprobante)
+--------------------------------------------------------------------
+TABLAS AFECTADAS: pedidos (3 columnas nuevas y 2 check constraints),
+negocio_config (1 columna nueva) y Storage (bucket privado nuevo
+comprobantes-pago con 2 políticas). Ninguna política de tabla cambia.
+
+QUÉ ES (2026-11-09, pedido del dueño): en el checkout el cliente elige
+cómo paga. Con efectivo todo sigue igual. Con transferencia (Nequi,
+Bancolombia o Bre-B) ve los datos de la cuenta, un QR y un enlace
+directo para pagar, y NO puede enviar el pedido hasta subir el
+comprobante. El link de WhatsApp (wa.me) solo lleva texto, así que el
+comprobante no puede viajar por ahí: se guarda en Storage y el panel lo
+muestra junto al pedido. Los pedidos se manejan igual que siempre (mismos
+5 estados); la verificación del pago es una marca aparte.
+
+CÓMO FUNCIONA CADA CAMPO:
+- pedidos.metodo_pago: 'efectivo' o 'transferencia'. Null en los pedidos
+  anteriores a este cambio (el panel no muestra nada para ellos).
+- pedidos.comprobante_path: ruta del archivo dentro del bucket
+  comprobantes-pago, con la forma «negocio_id»/«uuid».webp. Es una RUTA,
+  no una URL: el bucket es privado y el panel pide un enlace firmado que
+  vence a los pocos minutos.
+- pedidos.pago_verificado: false por defecto. El admin lo prende cuando
+  confirma que la plata llegó. Lo cubre la política de update que ya
+  tenía pedidos (dueño o empleado con puede_pedidos).
+- negocio_config.datos_pago: JSON con un objeto por medio, todos
+  opcionales:
+      {
+        "nequi":       { "activo", "numero", "titular", "enlace", "qr_url" },
+        "bancolombia": { "activo", "tipo_cuenta", "numero", "titular",
+                         "enlace", "qr_url" },
+        "breb":        { "activo", "numero" (la llave), "titular",
+                         "enlace", "qr_url" }
+      }
+  Es público a propósito (negocio_config ya tiene lectura pública): son
+  los datos que el cliente necesita para pagar. El QR se sube al bucket
+  público productos-imagenes, carpeta del negocio, con la política de
+  escritura que ya existía (sección 9).
+
+RESTRICCIONES EN LA BASE (no solo en el formulario):
+- pedidos_metodo_pago_check: solo los dos valores (o null).
+- pedidos_comprobante_transferencia_check: si metodo_pago es
+  'transferencia', comprobante_path es obligatorio y tiene que empezar
+  por el negocio_id del pedido, para que nadie cree un pedido apuntando
+  al comprobante de otro negocio.
+
+STORAGE — bucket comprobantes-pago (privado, máx. 5 MB, solo webp, jpeg
+y png):
+- insert para anon y authenticated: solo en la carpeta de un negocio
+  activo. El cliente final no tiene sesión, por eso anon.
+- select para authenticated: dueño (rol en app_metadata) o empleado
+  activo con puede_pedidos, y solo en la carpeta de su negocio
+  (negocio_id de app_metadata, nunca user_metadata).
+- Sin update ni delete: nadie desde el navegador cambia o borra un
+  comprobante. El cliente no puede ver ni listar ninguno, ni el suyo.
+- Como el cliente no puede editar pedidos (no hay update para anon), el
+  checkout sube el comprobante PRIMERO y después inserta el pedido con
+  la ruta. Si la inserción falla queda un archivo huérfano en el bucket,
+  que no se ve en ningún lado; es un costo aceptable a cambio de no
+  abrir el update de pedidos al público.
+
+SCRIPT SQL: scripts/migracion-pago-transferencia.sql (completo, con una
+consulta de verificación al final). Resumen:
+
+    alter table pedidos
+      add column metodo_pago text,
+      add column comprobante_path text,
+      add column pago_verificado boolean not null default false;
+
+    alter table pedidos add constraint pedidos_metodo_pago_check
+      check (metodo_pago in ('efectivo', 'transferencia'));
+
+    alter table pedidos add constraint pedidos_comprobante_transferencia_check
+      check (
+        metodo_pago is distinct from 'transferencia'
+        or (comprobante_path is not null
+            and comprobante_path like negocio_id::text || '/%')
+      );
+
+    alter table negocio_config add column datos_pago jsonb;
+
+    insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+    values ('comprobantes-pago', 'comprobantes-pago', false, 5242880,
+            array['image/webp', 'image/jpeg', 'image/png']);
+
+    -- + las políticas "Clientes suben comprobantes de pago" (insert) y
+    --   "Dueño o empleados con permiso ven comprobantes" (select).
+
+ESTADO: PENDIENTE — el dueño debe correrlo en el SQL Editor antes de
+desplegar el código (useNegocioConfig pide datos_pago en su select y,
+sin la columna, la carta no cargaría la configuración del negocio).
+
+CONSECUENCIA EN EL CÓDIGO:
+- useNegocioConfig: agrega datos_pago al select.
+- lib/mediosPago.js: medios disponibles (nequi, bancolombia, breb), sus
+  etiquetas y cuáles están configurados.
+- FormularioNegocio (Admin → Negocio): sección "Pagos por transferencia"
+  con un bloque por medio (activo, número o llave, titular, enlace y QR).
+- lib/storage.js: subirComprobantePago (comprime a WebP sin recortar) y
+  urlComprobantePago (enlace firmado de 5 minutos), y subirImagenQr.
+- Checkout: selector Efectivo / Transferencia (Transferencia solo aparece
+  si hay al menos un medio activo); con transferencia, pestañas por
+  medio, datos con botón copiar, QR, botón "Pagar con …" al enlace, y el
+  campo del comprobante. Sin comprobante el botón de enviar no se activa.
+- lib/whatsapp.js: línea "Pago: …" en el mensaje.
+- TablaPedidos: etiqueta del método, botón "Ver comprobante" y marca
+  "Pago verificado".
+
+
 RESUMEN GENERAL
 --------------------------------------------------------------------
 La base de datos completa (negocios, usuarios_admin, categorias,
