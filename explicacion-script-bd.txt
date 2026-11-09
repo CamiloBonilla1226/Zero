@@ -2053,6 +2053,59 @@ CONSECUENCIA EN EL CÓDIGO:
   "Pago verificado".
 
 
+
+25. EL COMPROBANTE DE TRANSFERENCIA SE ENVÍA POR WHATSAPP (ya no se sube)
+--------------------------------------------------------------------
+TABLAS AFECTADAS: pedidos (se borra el check
+pedidos_comprobante_transferencia_check) y Storage (se borra la política
+de subida anónima del bucket comprobantes-pago). No se borra ninguna
+columna.
+
+QUÉ CAMBIÓ (2026-11-09, decisión del dueño): el dueño quiere que el
+comprobante le llegue por WhatsApp, junto al mensaje del pedido. Un
+enlace wa.me solo lleva texto, así que la foto no puede ir adjunta desde
+la carta: la adjunta el cliente en el chat. Se dejó de subir a la
+plataforma para no pedir la foto dos veces.
+
+LA REGLA "PAGAR ANTES DE ENVIAR" SE MANTIENE EN LA CARTA: con
+transferencia el botón de enviar queda bloqueado hasta que el cliente
+marca "Ya hice la transferencia". El mensaje de WhatsApp dice "Pago:
+Transferencia a «medio» (ya transferí; adjunto el comprobante en este
+chat)". Es una confirmación del cliente, no una prueba: la verificación
+real la hace el admin al ver la captura en WhatsApp y prender "Pago
+verificado" en el panel.
+
+POR QUÉ SE BORRA EL CHECK: exigía comprobante_path en todo pedido por
+transferencia. Con el código nuevo ese campo va vacío y la inserción
+sería rechazada. Por eso el script se corre ANTES de desplegar.
+
+POR QUÉ SE BORRA LA POLÍTICA DE SUBIDA: ya nada en la carta sube
+archivos, y dejar una escritura anónima abierta sin uso solo agrega
+superficie de abuso (cualquiera podría llenar el bucket).
+
+LO QUE SE DEJA: las columnas metodo_pago, comprobante_path y
+pago_verificado; el bucket comprobantes-pago y su política de lectura
+para el panel, para los comprobantes de prueba que ya se subieron.
+comprobante_path queda en null en los pedidos nuevos.
+
+SCRIPT SQL: scripts/migracion-comprobante-por-whatsapp.sql
+
+    alter table pedidos drop constraint if exists pedidos_comprobante_transferencia_check;
+
+    drop policy if exists "Clientes suben comprobantes de pago" on storage.objects;
+
+(con dos consultas de verificación que deben devolver 0 filas).
+
+ESTADO: PENDIENTE — el dueño debe correrlo antes de desplegar el código.
+
+CONSECUENCIA EN EL CÓDIGO:
+- Checkout / PagoTransferencia: se quita el campo de la foto y se agrega
+  la casilla "Ya hice la transferencia" (obligatoria para enviar).
+- lib/storage.js: se quita subirComprobantePago; queda
+  urlComprobantePago para los comprobantes viejos.
+- TablaPedidos: "Ver comprobante" solo si el pedido tiene
+  comprobante_path; si no, dice "Comprobante por WhatsApp".
+
 RESUMEN GENERAL
 --------------------------------------------------------------------
 La base de datos completa (negocios, usuarios_admin, categorias,

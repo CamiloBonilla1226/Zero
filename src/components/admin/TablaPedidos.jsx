@@ -68,10 +68,14 @@ function PagoPedido({ pedido, onMarcarPagoVerificado }) {
       <span className={`pedido-item__metodo${pedido.pago_verificado ? ' pedido-item__metodo--verificado' : ' pedido-item__metodo--pendiente'}`}>
         Transferencia · {pedido.pago_verificado ? 'Verificada' : 'Por verificar'}
       </span>
-      {pedido.comprobante_path && (
+      {/* Desde la sección 25 el comprobante llega por WhatsApp; solo los pedidos de prueba de
+          antes tienen comprobante_path en el bucket. */}
+      {pedido.comprobante_path ? (
         <button type="button" className="boton boton--secundario boton--pequeno" onClick={verComprobante} disabled={abriendo}>
           {abriendo ? 'Abriendo…' : 'Ver comprobante'}
         </button>
+      ) : (
+        <span className="texto-suave pedido-item__nota-pago">Comprobante por WhatsApp</span>
       )}
       <Interruptor
         activo={pedido.pago_verificado}

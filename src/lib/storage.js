@@ -138,28 +138,10 @@ export async function subirImagenQr(negocioId, archivo) {
   }
 }
 
-// Comprobantes de transferencia: bucket PRIVADO (ver sección 24 de explicacion-script-bd.txt).
-// El cliente solo puede subir; el panel los ve con un enlace firmado que vence pronto.
+// Comprobantes de transferencia: bucket PRIVADO (ver secciones 24 y 25 de
+// explicacion-script-bd.txt). Ya no se suben desde la carta (el cliente los manda por
+// WhatsApp); solo se leen los que quedaron de antes, con un enlace firmado que vence pronto.
 const BUCKET_COMPROBANTES = 'comprobantes-pago'
-
-// Devuelve la ruta dentro del bucket (no una URL: el bucket no es público).
-export async function subirComprobantePago(negocioId, archivo) {
-  // 15 MB de entrada: las capturas de celular pesan poco, pero una foto de cámara puede
-  // pesar bastante; igual sale comprimida muy por debajo del límite de 5 MB del bucket.
-  const errorValidacion = validarImagen(archivo, 15)
-  if (errorValidacion) return { ruta: null, error: errorValidacion }
-
-  try {
-    const blob = await comprimirSinRecorte(archivo, 1600, 0.82)
-    const ruta = `${negocioId}/${crypto.randomUUID()}.webp`
-    const { error } = await supabase.storage
-      .from(BUCKET_COMPROBANTES)
-      .upload(ruta, blob, { contentType: 'image/webp', upsert: false })
-    return { ruta: error ? null : ruta, error }
-  } catch (error) {
-    return { ruta: null, error }
-  }
-}
 
 export async function urlComprobantePago(ruta) {
   const { data, error } = await supabase.storage.from(BUCKET_COMPROBANTES).createSignedUrl(ruta, 300)

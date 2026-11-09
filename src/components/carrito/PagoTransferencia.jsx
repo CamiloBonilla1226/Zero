@@ -4,17 +4,18 @@ import { formatoPrecio } from '../../lib/tiposOferta'
 
 // Lo que ve el cliente al elegir "Transferencia": una pestaña por medio activo, los datos para
 // transferir (el número, celular o llave en grande y con botón de copiar), el QR si el negocio
-// lo subió y el campo del comprobante. El comprobante solo se elige aquí; lo sube Checkout al enviar.
-// `vistaPrevia`: URL temporal (createObjectURL) del comprobante elegido; la maneja Checkout para
-// que no se pierda si el cliente cambia a efectivo y vuelve.
-export function PagoTransferencia({ medios, medioClave, onCambiarMedio, total, vistaPrevia, onCambiarComprobante, error }) {
+// lo subió y la casilla "Ya hice la transferencia", sin la cual no se envía el pedido. El
+// comprobante NO se sube a la plataforma: el cliente lo adjunta en el chat de WhatsApp.
+export function PagoTransferencia({
+  medios,
+  medioClave,
+  onCambiarMedio,
+  total,
+  transferenciaHecha,
+  onCambiarTransferenciaHecha,
+  error,
+}) {
   const medio = medios.find((m) => m.clave === medioClave) ?? medios[0]
-
-  const elegirArchivo = (evento) => {
-    const archivo = evento.target.files?.[0]
-    evento.target.value = ''
-    if (archivo) onCambiarComprobante(archivo)
-  }
 
   return (
     <div className="pago-transferencia">
@@ -71,25 +72,14 @@ export function PagoTransferencia({ medios, medioClave, onCambiarMedio, total, v
         )}
       </div>
 
-      <div className="campo pago-transferencia__comprobante">
-        <span>Comprobante de pago</span>
-        {vistaPrevia ? (
-          <div className="pago-transferencia__vista">
-            <img src={vistaPrevia} alt="Comprobante elegido" />
-            <label className="boton boton--secundario boton--pequeno">
-              Cambiar
-              <input type="file" accept="image/*" hidden onChange={elegirArchivo} />
-            </label>
-          </div>
-        ) : (
-          <label className="pago-transferencia__subir">
-            <strong>Subir captura del comprobante</strong>
-            <small>Cuando hayas transferido, sube la captura de pantalla o foto del pago.</small>
-            <input type="file" accept="image/*" hidden onChange={elegirArchivo} />
-          </label>
-        )}
-        {error && <span className="campo__error">{error}</span>}
-      </div>
+      <label className={`pago-transferencia__confirmar${error ? ' pago-transferencia__confirmar--error' : ''}`}>
+        <input type="checkbox" checked={transferenciaHecha} onChange={(e) => onCambiarTransferenciaHecha(e.target.checked)} />
+        <span>
+          <strong>Ya hice la transferencia</strong>
+          <small>Al enviar el pedido se abre WhatsApp: adjunta ahí la captura del comprobante.</small>
+        </span>
+      </label>
+      {error && <span className="campo__error">{error}</span>}
     </div>
   )
 }

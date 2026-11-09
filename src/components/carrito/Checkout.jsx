@@ -4,7 +4,6 @@ import { negocioConfig } from '../../config/negocio.config'
 import { construirLinkWhatsApp, construirMensajePedido } from '../../lib/whatsapp'
 import { formatoPrecio } from '../../lib/tiposOferta'
 import { mediosDisponibles } from '../../lib/mediosPago'
-import { subirComprobantePago } from '../../lib/storage'
 import { PagoTransferencia } from './PagoTransferencia'
 
 function validar({ nombre, telefono, direccion }) {
@@ -24,7 +23,7 @@ export function Checkout({ items, total, ofertas = [], datosPago = null, onPedid
   const medios = useMemo(() => mediosDisponibles(datosPago), [datosPago])
   const [metodoPago, setMetodoPago] = useState('efectivo')
   const [medioClave, setMedioClave] = useState(null)
-  const [comprobante, setComprobante] = useState(null)
+  const [transferenciaHecha, setTransferenciaHecha] = useState(false)
   const esTransferencia = metodoPago === 'transferencia' && medios.length > 0
   const medioElegido = medios.find((m) => m.clave === medioClave) ?? medios[0]
   const [enviando, setEnviando] = useState(false)
@@ -37,28 +36,14 @@ export function Checkout({ items, total, ofertas = [], datosPago = null, onPedid
   const enviarPedido = async (evento) => {
     evento.preventDefault()
     const erroresValidacion = validar(datos)
-    // Con transferencia no se puede enviar sin comprobante (la base también lo exige, ver
-    // pedidos_comprobante_transferencia_check en explicacion-script-bd.txt, sección 24).
-    if (esTransferencia && !comprobante) erroresValidacion.comprobante = 'Sube el comprobante de la transferencia.'
+    // Con transferencia se paga ANTES de enviar: el cliente tiene que confirmar que ya
+    // transfirió. El comprobante lo manda por WhatsApp (ver sección 25 de explicacion-script-bd.txt).
+    if (esTransferencia && !transferenciaHecha) erroresValidacion.transferencia = 'Haz la transferencia y marca la casilla.'
     setErrores(erroresValidacion)
     if (Object.keys(erroresValidacion).length > 0) return
 
     setEnviando(true)
     setErrorEnvio(null)
-
-    // El comprobante se sube ANTES de crear el pedido: el cliente no tiene permiso de editar
-    // un pedido ya creado, así que la ruta tiene que ir en la misma inserción.
-    let comprobantePath = null
-    if (esTransferencia) {
-      const { ruta, error: errorComprobante } = await subirComprobantePago(negocioConfig.negocioId, comprobante.archivo)
-      if (errorComprobante) {
-        setEnviando(false)
-        setErrorEnvio('No se pudo subir el comprobante. Revisa tu conexión e intenta de nuevo.')
-        console.error(errorComprobante)
-        return
-      }
-      comprobantePath = ruta
-    }
 
     // Una adición pedida sola va con producto_id null y su adicion_id (ver useCarrito:
     // agregarAdicion); el panel y WhatsApp la muestran igual que cualquier línea.
@@ -82,7 +67,6 @@ export function Checkout({ items, total, ofertas = [], datosPago = null, onPedid
       productos_detalle: productosDetalle,
       total,
       metodo_pago: esTransferencia ? 'transferencia' : 'efectivo',
-      comprobante_path: comprobantePath,
     })
 
     setEnviando(false)
@@ -94,7 +78,7 @@ export function Checkout({ items, total, ofertas = [], datosPago = null, onPedid
     }
 
     const pago = esTransferencia
-      ? `Pago: Transferencia (${medioElegido.nombre}) — comprobante adjunto en el pedido`
+      ? `Pago: Transferencia a ${medioElegido.nombre} (ya transferí; adjunto el comprobante en este chat)`
       : 'Pago: Efectivo'
     const mensaje = construirMensajePedido({ items, total, cliente: datos, ofertas, pago })
     const link = construirLinkWhatsApp(negocioConfig.whatsappContacto, mensaje)
@@ -194,30 +178,31 @@ export function Checkout({ items, total, ofertas = [], datosPago = null, onPedid
             medioClave={medioElegido.clave}
             onCambiarMedio={setMedioClave}
             total={total}
-            vistaPrevia={comprobante?.vista}
-            onCambiarComprobante={(archivo) => {
-              if (comprobante) URL.revokeObjectURL(comprobante.vista)
-              setComprobante({ archivo, vista: URL.createObjectURL(archivo) })
+            transferenciaHecha={transferenciaHecha}
+            onCambiarTransferenciaHecha={(valor) => {
+              setTransferenciaHecha(valor)
               setErrores((actual) => {
                 const resto = { ...actual }
-                delete resto.comprobante
+                delete resto.transferencia
                 return resto
               })
             }}
-            error={errores.comprobante}
+            error={errores.transferencia}
           />
         )}
       </fieldset>
 
       {errorEnvio && <p className="campo__error">{errorEnvio}</p>}
 
-      <button type="submit" className="boton checkout__enviar" disabled={enviando || (esTransferencia && !comprobante)}>
+      <button type="submit" className="boton checkout__enviar" disabled={enviando || (esTransferencia && !transferenciaHecha)}>
         {enviando ? 'Enviando…' : 'Enviar pedido por WhatsApp'}
       </button>
       <p className="checkout__nota">
-        {esTransferencia && !comprobante
-          ? 'Sube el comprobante de la transferencia para poder enviar el pedido.'
-          : 'Se abre WhatsApp con tu pedido listo para confirmar la entrega.'}
+        {!esTransferencia
+          ? 'Se abre WhatsApp con tu pedido listo para confirmar la entrega.'
+          : transferenciaHecha
+            ? 'Se abre WhatsApp con tu pedido: envía el mensaje y adjunta la captura del comprobante.'
+            : 'Transfiere primero y marca la casilla para poder enviar el pedido.'}
       </p>
     </form>
   )
