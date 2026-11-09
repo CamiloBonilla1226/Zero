@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { textoSabores } from '../../lib/sabores'
+import { textoAdiciones } from '../../lib/adiciones'
 import { urlComprobantePago } from '../../lib/storage'
 import { Interruptor } from './Interruptor'
 
@@ -117,7 +118,7 @@ export function TablaPedidos({ pedidos, onActualizarEstado, onMarcarPagoVerifica
               const detalles = [
                 item.variante_elegida,
                 textoSabores(item.sabores_elegidos),
-                ...(item.opciones_elegidas?.map((o) => o.nombre) ?? []),
+                textoAdiciones(item.opciones_elegidas ?? []),
               ].filter(Boolean)
               return (
                 <li key={indice}>
