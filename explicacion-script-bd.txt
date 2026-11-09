@@ -2114,6 +2114,82 @@ CONSECUENCIA EN EL CÓDIGO:
 - TablaPedidos: "Ver comprobante" solo si el pedido tiene
   comprobante_path; si no, dice "Comprobante por WhatsApp".
 
+
+26. MÁXIMO DE ADICIONES POR PRODUCTO Y POR VARIANTE
+    (productos.cantidad_adiciones, variantes_producto.cantidad_adiciones)
+--------------------------------------------------------------------
+TABLAS AFECTADAS: productos y variantes_producto (1 columna nueva cada
+una). pedidos no cambia de esquema, solo el contenido de
+productos_detalle. No cambia ninguna política.
+
+QUÉ ES (2026-11-09, pedido del dueño): cada producto, o cada variante,
+dice cuántas adiciones puede agregar el cliente. Ejemplo: producto X
+con variantes Pequeño (hasta 2 adiciones) y Grande (hasta 3). El
+cliente puede:
+- no pedir ninguna adición (siempre son opcionales);
+- repetir la misma (Leche x2 cuenta como 2 de las permitidas);
+- combinar hasta el máximo; la carta no deja pasar de ahí.
+Cada adición repetida se cobra cada vez (2 x Leche = 2 x su precio).
+
+MISMO PATRÓN QUE LOS SABORES (sección 22): la columna está en las dos
+tablas; si el producto tiene variantes manda la de la variante elegida,
+y si no, la del producto. La diferencia es que los sabores son
+OBLIGATORIOS en la cantidad exacta, y las adiciones son un MÁXIMO.
+
+CÓMO FUNCIONA EL CAMPO (igual en las dos tablas):
+- null: sin límite. Es el valor por defecto, así que todos los productos
+  que ya existían (y los de otros negocios de la base compartida) siguen
+  exactamente como antes.
+- 0: el producto o la variante no admite adiciones (la carta no muestra
+  la lista).
+- 1 a 20: máximo de adiciones, contando repetidas.
+El check limita a 0..20 (20 es un tope de seguridad, no de negocio).
+
+LA VALIDACIÓN ES DE LA CARTA, NO DE LA BASE: el pedido llega como JSON
+(productos_detalle) insertado por anon, y la base no puede contar
+adiciones dentro de ese JSON contra el producto sin una función o
+trigger. Se decidió no agregarlo: un cliente que manipule la página solo
+podría pedir más adiciones (que igual paga, cada una con su precio), y
+el negocio las ve todas en el pedido y en WhatsApp.
+
+productos_detalle: opciones_elegidas puede traer la MISMA adición varias
+veces (una entrada por unidad, como sabores_elegidos). Carrito, WhatsApp
+y el panel las agrupan: "Leche x2, Queso".
+
+SCRIPT SQL: scripts/migracion-cantidad-adiciones.sql
+
+    begin;
+    alter table productos
+      add column cantidad_adiciones int
+        check (cantidad_adiciones between 0 and 20);
+    alter table variantes_producto
+      add column cantidad_adiciones int
+        check (cantidad_adiciones between 0 and 20);
+    -- + comment on column de cada una
+    commit;
+
+ESTADO: PENDIENTE — el dueño debe correrlo antes de desplegar el
+formulario de producto que guarda cantidad_adiciones (sin la columna,
+guardar un producto fallaría). La carta funciona sin la columna: lee
+productos y variantes con select *, y si no viene la trata como "sin
+límite".
+
+CONSECUENCIA EN EL CÓDIGO:
+- lib/adiciones.js: cantidadAdiciones(producto, variante) (null = sin
+  límite) y textoAdiciones (agrupa repetidas).
+- Carta (OpcionesProducto + ListaAdiciones): contador − n + por
+  adición, "0 de 3 · puedes repetir · opcional"; el "+" se apaga al
+  llegar al máximo; con 0 no se muestra la lista. Al cambiar a una
+  variante con menos cupo, las adiciones elegidas se reinician.
+- useCarrito: la misma adición repetida va repetida en opcionesElegidas;
+  el subtotal suma cada una y la agrupación de líneas iguales sigue
+  funcionando (ids ordenados con repetidos).
+- Carrito, WhatsApp y TablaPedidos: adiciones agrupadas ("Leche x2").
+- FormularioProducto: "Máximo de adiciones" en el producto (sin
+  variantes) y en cada variante; vacío = sin límite.
+- useProductos: guarda cantidad_adiciones del producto y de cada
+  variante, y la trae en el embed liviano de variantes.
+
 RESUMEN GENERAL
 --------------------------------------------------------------------
 La base de datos completa (negocios, usuarios_admin, categorias,
