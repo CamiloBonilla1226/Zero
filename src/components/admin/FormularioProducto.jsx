@@ -6,11 +6,13 @@ import { subirImagenProducto } from '../../lib/storage'
 import { negocioConfig } from '../../config/negocio.config'
 import { useVariantesProducto } from '../../hooks/useVariantesProducto'
 import { useSabores } from '../../hooks/useSabores'
+import { useAdiciones } from '../../hooks/useAdiciones'
+import { MAX_ADICIONES, normalizarMaximoAdiciones } from '../../lib/adiciones'
 import { mensajeAmigablePostgres } from '../../lib/erroresAmigables'
 import { tienePrecioCartaFisica } from '../../lib/preciosCartaFisica'
 
 const MAX_VARIANTES = 5
-const VARIANTE_VACIA = { nombre: '', precio: '', precio_carta_fisica: '', descripcion: '' }
+const VARIANTE_VACIA = { nombre: '', precio: '', precio_carta_fisica: '', descripcion: '', cantidad_adiciones: '' }
 const MAX_SABORES = 12
 
 const VACIO = {
@@ -27,8 +29,12 @@ const VACIO = {
   visible_carta_fisica: true,
   destacado: false,
   cantidad_sabores: '',
+  cantidad_adiciones: '',
   sabor_id: '',
 }
+
+// Columna → campo del formulario: null (sin límite) se muestra vacío.
+const campoMaximo = (valor) => (valor == null ? '' : String(valor))
 
 // Formulario único de producto: si tiene variantes (switch "¿Tiene variantes?"), se
 // ocultan precio/precio_oferta (esos campos dejan de aplicar — el precio real lo da cada
@@ -44,6 +50,9 @@ const VACIO = {
 // formulario igual que siempre, ver useSabores.js): "Sabor del producto" lo liga a un sabor y
 // "Sabores a elegir" (solo sin variantes) dice cuántos escoge el cliente. Las variantes no
 // piden sabores: al guardar se dejan en 0.
+// Máximo de adiciones (sección 26 del script): sin variantes lo pone el producto; con variantes,
+// cada variante (ej. Pequeño 2, Grande 3). Vacío = sin límite, 0 = no admite. Se muestra si el
+// negocio tiene adiciones creadas, o si el producto ya tenía un máximo puesto.
 export function FormularioProducto({ categorias, productoInicial, onGuardar, onCancelar }) {
   const [valores, setValores] = useState(
     productoInicial
@@ -61,6 +70,7 @@ export function FormularioProducto({ categorias, productoInicial, onGuardar, onC
           visible_carta_fisica: productoInicial.visible_carta_fisica ?? true,
           destacado: productoInicial.destacado ?? false,
           cantidad_sabores: productoInicial.cantidad_sabores ? String(productoInicial.cantidad_sabores) : '',
+          cantidad_adiciones: campoMaximo(productoInicial.cantidad_adiciones),
           sabor_id: productoInicial.sabor_id ?? '',
         }
       : VACIO
@@ -77,6 +87,7 @@ export function FormularioProducto({ categorias, productoInicial, onGuardar, onC
   const [errorImagen, setErrorImagen] = useState(null)
   const [errorGuardado, setErrorGuardado] = useState(null)
   const { sabores } = useSabores()
+  const { adiciones } = useAdiciones()
 
   // Al editar un producto que ya tiene variantes, se precargan editables en la misma lista.
   const { variantes: variantesExistentes, cargando: cargandoVariantes } = useVariantesProducto(
@@ -90,6 +101,7 @@ export function FormularioProducto({ categorias, productoInicial, onGuardar, onC
           precio: String(v.precio),
           precio_carta_fisica: v.precio_carta_fisica == null ? '' : String(v.precio_carta_fisica),
           descripcion: v.descripcion ?? '',
+          cantidad_adiciones: campoMaximo(v.cantidad_adiciones),
         }))
       )
     }
@@ -104,6 +116,11 @@ export function FormularioProducto({ categorias, productoInicial, onGuardar, onC
     sabores.length > 0 ||
     Boolean(valores.sabor_id) ||
     Number(valores.cantidad_sabores) > 0
+
+  const usaAdiciones =
+    adiciones.length > 0 ||
+    valores.cantidad_adiciones !== '' ||
+    variantes.some((v) => v.cantidad_adiciones !== '')
 
   const actualizar = (campo) => (evento) => {
     const valor = evento.target.type === 'checkbox' ? evento.target.checked : evento.target.value
@@ -181,6 +198,7 @@ export function FormularioProducto({ categorias, productoInicial, onGuardar, onC
           precio_carta_fisica: precioFisicaDistinto && v.precio_carta_fisica !== '' ? v.precio_carta_fisica : null,
           descripcion: v.descripcion,
           cantidad_sabores: 0,
+          cantidad_adiciones: v.cantidad_adiciones,
         }))
         .filter((v) => v.nombre !== '' && v.precio !== '')
 
@@ -217,6 +235,8 @@ export function FormularioProducto({ categorias, productoInicial, onGuardar, onC
         // Con variantes manda la cantidad de cada variante; la del producto queda en 0.
         cantidad_sabores: tieneVariantes ? 0 : Math.min(MAX_SABORES, Number(valores.cantidad_sabores) || 0),
         sabor_id: valores.sabor_id || null,
+        // Con variantes manda el máximo de cada variante; el del producto queda sin límite.
+        cantidad_adiciones: tieneVariantes ? null : normalizarMaximoAdiciones(valores.cantidad_adiciones),
       },
       tieneVariantes ? variantesValidas : [],
       valores.categoria_ids
@@ -335,6 +355,21 @@ export function FormularioProducto({ categorias, productoInicial, onGuardar, onC
                       aria-label="Comentario de la variante"
                       maxLength={120}
                     />
+                    {usaAdiciones && (
+                      <input
+                        type="number"
+                        className="gestion-opciones__maximo-adiciones"
+                        min="0"
+                        max={MAX_ADICIONES}
+                        step="1"
+                        inputMode="numeric"
+                        value={variante.cantidad_adiciones}
+                        onChange={actualizarVariante(indice, 'cantidad_adiciones')}
+                        placeholder="Máx. adic."
+                        aria-label="Máximo de adiciones de la variante (vacío = sin límite)"
+                        title="Máximo de adiciones (vacío = sin límite, 0 = ninguna)"
+                      />
+                    )}
                   </div>
                 </li>
               ))}
@@ -405,6 +440,33 @@ export function FormularioProducto({ categorias, productoInicial, onGuardar, onC
             onChange={actualizar('cantidad_sabores')}
             placeholder="0"
           />
+        </label>
+      )}
+
+      {usaAdiciones && tieneVariantes && (
+        <p className="texto-suave campo__ayuda">
+          "Máx. adic." de cada variante: cuántas adiciones puede agregar el cliente (se pueden repetir). Vacío = sin
+          límite, 0 = no admite adiciones.
+        </p>
+      )}
+
+      {usaAdiciones && !tieneVariantes && (
+        <label className="campo">
+          <span>Máximo de adiciones</span>
+          <input
+            type="number"
+            min="0"
+            max={MAX_ADICIONES}
+            step="1"
+            inputMode="numeric"
+            value={valores.cantidad_adiciones}
+            onChange={actualizar('cantidad_adiciones')}
+            placeholder="Sin límite"
+          />
+          <small className="campo__ayuda">
+            Cuántas adiciones puede agregar el cliente (puede repetir la misma o no pedir ninguna). Vacío = sin límite, 0 = no
+            admite adiciones.
+          </small>
         </label>
       )}
 
