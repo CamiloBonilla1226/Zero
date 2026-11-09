@@ -1,8 +1,11 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { usePedidos } from '../../hooks/usePedidos'
 import { negocioConfig } from '../../config/negocio.config'
 import { construirLinkWhatsApp, construirMensajePedido } from '../../lib/whatsapp'
 import { formatoPrecio } from '../../lib/tiposOferta'
+import { mediosDisponibles } from '../../lib/mediosPago'
+import { subirComprobantePago } from '../../lib/storage'
+import { PagoTransferencia } from './PagoTransferencia'
 
 function validar({ nombre, telefono, direccion }) {
   const errores = {}
@@ -12,10 +15,18 @@ function validar({ nombre, telefono, direccion }) {
   return errores
 }
 
-export function Checkout({ items, total, ofertas = [], onPedidoConfirmado }) {
+// `datosPago`: negocio_config.datos_pago. "Transferencia" solo aparece si el negocio tiene al
+// menos un medio activo (Admin → Negocio); si no, el pedido sale como efectivo, igual que antes.
+export function Checkout({ items, total, ofertas = [], datosPago = null, onPedidoConfirmado }) {
   const { crearPedido } = usePedidos()
   const [datos, setDatos] = useState({ nombre: '', telefono: '', direccion: '' })
   const [errores, setErrores] = useState({})
+  const medios = useMemo(() => mediosDisponibles(datosPago), [datosPago])
+  const [metodoPago, setMetodoPago] = useState('efectivo')
+  const [medioClave, setMedioClave] = useState(null)
+  const [comprobante, setComprobante] = useState(null)
+  const esTransferencia = metodoPago === 'transferencia' && medios.length > 0
+  const medioElegido = medios.find((m) => m.clave === medioClave) ?? medios[0]
   const [enviando, setEnviando] = useState(false)
   const [errorEnvio, setErrorEnvio] = useState(null)
 
@@ -26,11 +37,28 @@ export function Checkout({ items, total, ofertas = [], onPedidoConfirmado }) {
   const enviarPedido = async (evento) => {
     evento.preventDefault()
     const erroresValidacion = validar(datos)
+    // Con transferencia no se puede enviar sin comprobante (la base también lo exige, ver
+    // pedidos_comprobante_transferencia_check en explicacion-script-bd.txt, sección 24).
+    if (esTransferencia && !comprobante) erroresValidacion.comprobante = 'Sube el comprobante de la transferencia.'
     setErrores(erroresValidacion)
     if (Object.keys(erroresValidacion).length > 0) return
 
     setEnviando(true)
     setErrorEnvio(null)
+
+    // El comprobante se sube ANTES de crear el pedido: el cliente no tiene permiso de editar
+    // un pedido ya creado, así que la ruta tiene que ir en la misma inserción.
+    let comprobantePath = null
+    if (esTransferencia) {
+      const { ruta, error: errorComprobante } = await subirComprobantePago(negocioConfig.negocioId, comprobante.archivo)
+      if (errorComprobante) {
+        setEnviando(false)
+        setErrorEnvio('No se pudo subir el comprobante. Revisa tu conexión e intenta de nuevo.')
+        console.error(errorComprobante)
+        return
+      }
+      comprobantePath = ruta
+    }
 
     // Una adición pedida sola va con producto_id null y su adicion_id (ver useCarrito:
     // agregarAdicion); el panel y WhatsApp la muestran igual que cualquier línea.
@@ -53,6 +81,8 @@ export function Checkout({ items, total, ofertas = [], onPedidoConfirmado }) {
       direccion: datos.direccion.trim(),
       productos_detalle: productosDetalle,
       total,
+      metodo_pago: esTransferencia ? 'transferencia' : 'efectivo',
+      comprobante_path: comprobantePath,
     })
 
     setEnviando(false)
@@ -63,7 +93,10 @@ export function Checkout({ items, total, ofertas = [], onPedidoConfirmado }) {
       return
     }
 
-    const mensaje = construirMensajePedido({ items, total, cliente: datos, ofertas })
+    const pago = esTransferencia
+      ? `Pago: Transferencia (${medioElegido.nombre}) — comprobante adjunto en el pedido`
+      : 'Pago: Efectivo'
+    const mensaje = construirMensajePedido({ items, total, cliente: datos, ofertas, pago })
     const link = construirLinkWhatsApp(negocioConfig.whatsappContacto, mensaje)
     window.open(link, '_blank', 'noreferrer')
     onPedidoConfirmado()
@@ -126,12 +159,66 @@ export function Checkout({ items, total, ofertas = [], onPedidoConfirmado }) {
         {errores.direccion && <span className="campo__error">{errores.direccion}</span>}
       </label>
 
+      <fieldset className="checkout__pago">
+        <legend>¿Cómo vas a pagar?</legend>
+        <div className="checkout__metodos">
+          <label className={`checkout__metodo${!esTransferencia ? ' checkout__metodo--activo' : ''}`}>
+            <input
+              type="radio"
+              name="metodo-pago"
+              value="efectivo"
+              checked={!esTransferencia}
+              onChange={() => setMetodoPago('efectivo')}
+            />
+            <strong>Efectivo</strong>
+            <small>Pagas al recibir</small>
+          </label>
+          {medios.length > 0 && (
+            <label className={`checkout__metodo${esTransferencia ? ' checkout__metodo--activo' : ''}`}>
+              <input
+                type="radio"
+                name="metodo-pago"
+                value="transferencia"
+                checked={esTransferencia}
+                onChange={() => setMetodoPago('transferencia')}
+              />
+              <strong>Transferencia</strong>
+              <small>{medios.map((m) => m.nombre).join(' · ')}</small>
+            </label>
+          )}
+        </div>
+
+        {esTransferencia && (
+          <PagoTransferencia
+            medios={medios}
+            medioClave={medioElegido.clave}
+            onCambiarMedio={setMedioClave}
+            total={total}
+            vistaPrevia={comprobante?.vista}
+            onCambiarComprobante={(archivo) => {
+              if (comprobante) URL.revokeObjectURL(comprobante.vista)
+              setComprobante({ archivo, vista: URL.createObjectURL(archivo) })
+              setErrores((actual) => {
+                const resto = { ...actual }
+                delete resto.comprobante
+                return resto
+              })
+            }}
+            error={errores.comprobante}
+          />
+        )}
+      </fieldset>
+
       {errorEnvio && <p className="campo__error">{errorEnvio}</p>}
 
-      <button type="submit" className="boton checkout__enviar" disabled={enviando}>
+      <button type="submit" className="boton checkout__enviar" disabled={enviando || (esTransferencia && !comprobante)}>
         {enviando ? 'Enviando…' : 'Enviar pedido por WhatsApp'}
       </button>
-      <p className="checkout__nota">Se abre WhatsApp con tu pedido listo; allá confirmas el pago y la entrega.</p>
+      <p className="checkout__nota">
+        {esTransferencia && !comprobante
+          ? 'Sube el comprobante de la transferencia para poder enviar el pedido.'
+          : 'Se abre WhatsApp con tu pedido listo para confirmar la entrega.'}
+      </p>
     </form>
   )
 }

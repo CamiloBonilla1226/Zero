@@ -328,6 +328,7 @@ export function Carta() {
               items={carrito.items}
               total={carrito.total}
               ofertas={ofertas}
+              datosPago={configNegocio?.datos_pago}
               onPedidoConfirmado={() => {
                 carrito.vaciarCarrito()
                 setSeccion('inicio', { reemplazar: true })

@@ -1697,6 +1697,215 @@ body.admin .superposicion__panel::before {
   color: var(--color-texto-suave);
 }
 
+/* Método de pago: dos tarjetas tipo radio. Con transferencia se despliegan los datos de la
+   cuenta, el QR, el enlace directo y el comprobante (PagoTransferencia.jsx). */
+.checkout__pago {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.checkout__pago legend {
+  padding: 0;
+  margin-bottom: 8px;
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+
+.checkout__metodos {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+}
+
+.checkout__metodo {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 64px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-borde);
+  background: color-mix(in srgb, #000 30%, var(--color-bg));
+  cursor: pointer;
+  transition: border-color 150ms ease, box-shadow 200ms var(--curva-salida);
+}
+
+.checkout__metodo input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.checkout__metodo strong {
+  font-size: 0.9375rem;
+}
+
+.checkout__metodo small {
+  font-size: 0.75rem;
+  color: var(--color-texto-suave);
+}
+
+.checkout__metodo--activo {
+  border-color: var(--color-primario);
+  box-shadow: 0 0 0 1px var(--color-primario);
+}
+
+.checkout__metodo:has(input:focus-visible) {
+  outline: 2px solid var(--marca-dorado-claro);
+  outline-offset: 2px;
+}
+
+.pago-transferencia {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.pago-transferencia__medios {
+  display: flex;
+  border: 1px solid var(--color-borde);
+}
+
+.pago-transferencia__medio {
+  flex: 1;
+  min-height: 44px;
+  padding: 0 8px;
+  border: 0;
+  border-right: 1px solid var(--color-borde);
+  background: transparent;
+  color: var(--color-texto-suave);
+  font-weight: 600;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.pago-transferencia__medio:last-child {
+  border-right: 0;
+}
+
+.pago-transferencia__medio--activo {
+  background: var(--color-primario);
+  color: var(--marca-fondo);
+}
+
+.pago-transferencia__datos {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border: 1px dashed var(--color-border-strong);
+}
+
+.pago-transferencia__monto {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--color-texto-suave);
+}
+
+.pago-transferencia__monto strong {
+  color: var(--color-texto);
+  font-variant-numeric: tabular-nums;
+}
+
+.pago-transferencia__dato {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.pago-transferencia__dato div,
+.pago-transferencia__titular {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  margin: 0;
+}
+
+.pago-transferencia__dato span,
+.pago-transferencia__titular span {
+  font-size: 0.75rem;
+  color: var(--color-texto-suave);
+}
+
+.pago-transferencia__dato strong {
+  font-size: 1.0625rem;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.pago-transferencia__enlace {
+  min-height: 48px;
+  justify-content: center;
+  text-decoration: none;
+}
+
+.pago-transferencia__qr {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+
+.pago-transferencia__qr img {
+  width: min(220px, 100%);
+  aspect-ratio: 1;
+  object-fit: contain;
+  padding: 8px;
+  background: #fff;
+}
+
+.pago-transferencia__qr figcaption {
+  font-size: 0.75rem;
+  line-height: 1.45;
+  text-align: center;
+  color: var(--color-texto-suave);
+}
+
+.pago-transferencia__qr a {
+  color: var(--color-primario);
+}
+
+.pago-transferencia__subir {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 18px 14px;
+  border: 1px dashed var(--color-primario);
+  text-align: center;
+  cursor: pointer;
+}
+
+.pago-transferencia__subir strong {
+  color: var(--color-primario);
+}
+
+.pago-transferencia__subir small {
+  font-weight: 400;
+  font-size: 0.75rem;
+  color: var(--color-texto-suave);
+}
+
+.pago-transferencia__vista {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.pago-transferencia__vista img {
+  width: 72px;
+  height: 96px;
+  object-fit: cover;
+  border: 1px solid var(--color-borde);
+}
+
 .campo {
   display: flex;
   flex-direction: column;

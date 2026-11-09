@@ -2,8 +2,9 @@ import { evaluarOfertas, formatoPrecio } from './tiposOferta'
 import { textoSabores } from './sabores'
 
 // `ofertas`: las activas del negocio; las que el pedido cumple (ej. domicilio gratis desde $X)
-// agregan su línea al final del mensaje, ver lib/tiposOferta.js.
-export function construirMensajePedido({ items, total, cliente, ofertas = [] }) {
+// agregan su línea al final del mensaje, ver lib/tiposOferta.js. `pago`: línea con el método
+// de pago elegido en el checkout ("Pago: Efectivo", "Pago: Transferencia (Nequi) …").
+export function construirMensajePedido({ items, total, cliente, ofertas = [], pago = null }) {
   const lineas = items.map((item) => {
     const sabores = textoSabores((item.saboresElegidos ?? []).map((s) => s.nombre))
     const detalles = [item.varianteNombre, sabores, ...item.opcionesElegidas.map((o) => o.nombre)].filter(Boolean)
@@ -23,6 +24,7 @@ export function construirMensajePedido({ items, total, cliente, ofertas = [] }) 
     '',
     `Total: ${formatoPrecio.format(total)}`,
     ...lineasOfertas,
+    pago,
   ]
     .filter((linea) => linea !== null)
     .join('\n')
