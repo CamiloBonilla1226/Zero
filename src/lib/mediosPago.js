@@ -105,3 +105,21 @@ export async function descargarQr(qrUrl, nombreMedio) {
     return 'abierto'
   }
 }
+
+// Líneas de pago del mensaje de WhatsApp. Con transferencia van el medio y el dato exacto al
+// que se transfirió (número, cuenta o llave), para que el negocio sepa dónde buscar la plata
+// sin preguntarle al cliente:
+//   Pago: Transferencia a Bre-B
+//   Llave Bre-B: @zero
+//   Comprobante: lo adjunto en este chat
+export function lineasPagoWhatsapp(medio) {
+  if (!medio) return ['Pago: Efectivo']
+  const etiqueta = medio.conTipoCuenta
+    ? `Cuenta de ${medio.datos.tipo_cuenta?.toLowerCase() ?? 'ahorros'}`
+    : medio.etiquetaNumero
+  return [
+    `Pago: Transferencia a ${medio.nombre}`,
+    `${etiqueta}: ${medio.datos.numero.trim()}`,
+    'Comprobante: lo adjunto en este chat',
+  ]
+}

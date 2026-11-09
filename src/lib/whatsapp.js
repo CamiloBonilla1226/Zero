@@ -2,9 +2,10 @@ import { evaluarOfertas, formatoPrecio } from './tiposOferta'
 import { textoSabores } from './sabores'
 
 // `ofertas`: las activas del negocio; las que el pedido cumple (ej. domicilio gratis desde $X)
-// agregan su línea al final del mensaje, ver lib/tiposOferta.js. `pago`: línea con el método
-// de pago elegido en el checkout ("Pago: Efectivo", "Pago: Transferencia (Nequi) …").
-export function construirMensajePedido({ items, total, cliente, ofertas = [], pago = null }) {
+// agregan su línea al final del mensaje, ver lib/tiposOferta.js. `pago`: líneas del método de
+// pago elegido en el checkout (ver lineasPagoWhatsapp en lib/mediosPago.js); van después de
+// una línea en blanco para que se lean como un bloque aparte del pedido.
+export function construirMensajePedido({ items, total, cliente, ofertas = [], pago = [] }) {
   const lineas = items.map((item) => {
     const sabores = textoSabores((item.saboresElegidos ?? []).map((s) => s.nombre))
     const detalles = [item.varianteNombre, sabores, ...item.opcionesElegidas.map((o) => o.nombre)].filter(Boolean)
@@ -24,7 +25,7 @@ export function construirMensajePedido({ items, total, cliente, ofertas = [], pa
     '',
     `Total: ${formatoPrecio.format(total)}`,
     ...lineasOfertas,
-    pago,
+    ...(pago.length > 0 ? ['', ...pago] : []),
   ]
     .filter((linea) => linea !== null)
     .join('\n')

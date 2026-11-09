@@ -3,7 +3,7 @@ import { usePedidos } from '../../hooks/usePedidos'
 import { negocioConfig } from '../../config/negocio.config'
 import { construirLinkWhatsApp, construirMensajePedido } from '../../lib/whatsapp'
 import { formatoPrecio } from '../../lib/tiposOferta'
-import { mediosDisponibles } from '../../lib/mediosPago'
+import { lineasPagoWhatsapp, mediosDisponibles } from '../../lib/mediosPago'
 import { PagoTransferencia } from './PagoTransferencia'
 
 function validar({ nombre, telefono, direccion }) {
@@ -77,9 +77,7 @@ export function Checkout({ items, total, ofertas = [], datosPago = null, onPedid
       return
     }
 
-    const pago = esTransferencia
-      ? `Pago: Transferencia a ${medioElegido.nombre} (ya transferí; adjunto el comprobante en este chat)`
-      : 'Pago: Efectivo'
+    const pago = lineasPagoWhatsapp(esTransferencia ? medioElegido : null)
     const mensaje = construirMensajePedido({ items, total, cliente: datos, ofertas, pago })
     const link = construirLinkWhatsApp(negocioConfig.whatsappContacto, mensaje)
     window.open(link, '_blank', 'noreferrer')
