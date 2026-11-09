@@ -23,7 +23,6 @@ export function Checkout({ items, total, ofertas = [], datosPago = null, onPedid
   const medios = useMemo(() => mediosDisponibles(datosPago), [datosPago])
   const [metodoPago, setMetodoPago] = useState('efectivo')
   const [medioClave, setMedioClave] = useState(null)
-  const [transferenciaHecha, setTransferenciaHecha] = useState(false)
   const esTransferencia = metodoPago === 'transferencia' && medios.length > 0
   const medioElegido = medios.find((m) => m.clave === medioClave) ?? medios[0]
   const [enviando, setEnviando] = useState(false)
@@ -36,9 +35,6 @@ export function Checkout({ items, total, ofertas = [], datosPago = null, onPedid
   const enviarPedido = async (evento) => {
     evento.preventDefault()
     const erroresValidacion = validar(datos)
-    // Con transferencia se paga ANTES de enviar: el cliente tiene que confirmar que ya
-    // transfirió. El comprobante lo manda por WhatsApp (ver sección 25 de explicacion-script-bd.txt).
-    if (esTransferencia && !transferenciaHecha) erroresValidacion.transferencia = 'Haz la transferencia y marca la casilla.'
     setErrores(erroresValidacion)
     if (Object.keys(erroresValidacion).length > 0) return
 
@@ -176,31 +172,19 @@ export function Checkout({ items, total, ofertas = [], datosPago = null, onPedid
             medioClave={medioElegido.clave}
             onCambiarMedio={setMedioClave}
             total={total}
-            transferenciaHecha={transferenciaHecha}
-            onCambiarTransferenciaHecha={(valor) => {
-              setTransferenciaHecha(valor)
-              setErrores((actual) => {
-                const resto = { ...actual }
-                delete resto.transferencia
-                return resto
-              })
-            }}
-            error={errores.transferencia}
           />
         )}
       </fieldset>
 
       {errorEnvio && <p className="campo__error">{errorEnvio}</p>}
 
-      <button type="submit" className="boton checkout__enviar" disabled={enviando || (esTransferencia && !transferenciaHecha)}>
+      <button type="submit" className="boton checkout__enviar" disabled={enviando}>
         {enviando ? 'Enviando…' : 'Enviar pedido por WhatsApp'}
       </button>
       <p className="checkout__nota">
-        {!esTransferencia
-          ? 'Se abre WhatsApp con tu pedido listo para confirmar la entrega.'
-          : transferenciaHecha
-            ? 'Se abre WhatsApp con tu pedido: envía el mensaje y adjunta la captura del comprobante.'
-            : 'Transfiere primero y marca la casilla para poder enviar el pedido.'}
+        {esTransferencia
+          ? 'Se abre WhatsApp con tu pedido: envía el mensaje y adjunta la captura del comprobante.'
+          : 'Se abre WhatsApp con tu pedido listo para confirmar la entrega.'}
       </p>
     </form>
   )

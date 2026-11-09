@@ -1698,7 +1698,7 @@ body.admin .superposicion__panel::before {
 }
 
 /* Método de pago: dos tarjetas tipo radio. Con transferencia se despliegan los datos de la
-   cuenta para copiar, el QR y la casilla "Ya hice la transferencia" (PagoTransferencia.jsx). */
+   cuenta para copiar, el QR para descargar y el aviso del comprobante (PagoTransferencia.jsx). */
 .checkout__pago {
   display: flex;
   flex-direction: column;
@@ -1920,47 +1920,30 @@ body.admin .superposicion__panel::before {
   min-height: 44px;
 }
 
-.pago-transferencia__confirmar {
+/* Aviso (no casilla): el comprobante se adjunta en el chat de WhatsApp. */
+.pago-transferencia__aviso {
   display: flex;
   align-items: flex-start;
   gap: 12px;
-  padding: 14px;
-  border: 1px solid var(--color-borde);
-  cursor: pointer;
-}
-
-.pago-transferencia__confirmar:has(input:checked) {
-  border-color: var(--color-exito);
-  background: color-mix(in srgb, var(--color-exito) 10%, transparent);
-}
-
-.pago-transferencia__confirmar--error {
-  border-color: var(--color-error);
-}
-
-.pago-transferencia__confirmar input {
-  flex-shrink: 0;
-  width: 22px;
-  height: 22px;
   margin: 0;
-  border-radius: 0;
-  accent-color: var(--color-exito);
-}
-
-.pago-transferencia__confirmar span {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.pago-transferencia__confirmar strong {
-  font-size: 0.9375rem;
-}
-
-.pago-transferencia__confirmar small {
-  font-size: 0.75rem;
+  padding: 14px;
+  border-left: 3px solid var(--color-primario);
+  background: color-mix(in srgb, var(--color-primario) 8%, transparent);
+  font-size: 0.8125rem;
   line-height: 1.45;
   color: var(--color-texto-suave);
+}
+
+.pago-transferencia__aviso svg {
+  flex-shrink: 0;
+  color: var(--color-primario);
+}
+
+.pago-transferencia__aviso strong {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 0.9375rem;
+  color: var(--color-texto);
 }
 
 .campo {

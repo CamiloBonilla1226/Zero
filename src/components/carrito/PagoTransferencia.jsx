@@ -4,17 +4,9 @@ import { formatoPrecio } from '../../lib/tiposOferta'
 
 // Lo que ve el cliente al elegir "Transferencia": una pestaña por medio activo, los datos para
 // transferir (el número, celular o llave en grande y con botón de copiar), el QR si el negocio
-// lo subió y la casilla "Ya hice la transferencia", sin la cual no se envía el pedido. El
-// comprobante NO se sube a la plataforma: el cliente lo adjunta en el chat de WhatsApp.
-export function PagoTransferencia({
-  medios,
-  medioClave,
-  onCambiarMedio,
-  total,
-  transferenciaHecha,
-  onCambiarTransferenciaHecha,
-  error,
-}) {
+// lo subió (con botón de descarga) y el aviso de adjuntar el comprobante en WhatsApp. El
+// comprobante NO se sube a la plataforma: el cliente lo adjunta en el chat.
+export function PagoTransferencia({ medios, medioClave, onCambiarMedio, total }) {
   const medio = medios.find((m) => m.clave === medioClave) ?? medios[0]
 
   return (
@@ -67,14 +59,18 @@ export function PagoTransferencia({
         )}
       </div>
 
-      <label className={`pago-transferencia__confirmar${error ? ' pago-transferencia__confirmar--error' : ''}`}>
-        <input type="checkbox" checked={transferenciaHecha} onChange={(e) => onCambiarTransferenciaHecha(e.target.checked)} />
+      <p className="pago-transferencia__aviso">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
+          <g fill="none" stroke="currentColor" strokeWidth="1.8">
+            <rect x="4" y="3" width="16" height="18" />
+            <path d="M8 8h8M8 12h8M8 16h5" />
+          </g>
+        </svg>
         <span>
-          <strong>Ya hice la transferencia</strong>
-          <small>Al enviar el pedido se abre WhatsApp: adjunta ahí la captura del comprobante.</small>
+          <strong>Guarda la captura del comprobante</strong>
+          Al enviar el pedido se abre WhatsApp: adjunta ahí la captura del comprobante.
         </span>
-      </label>
-      {error && <span className="campo__error">{error}</span>}
+      </p>
     </div>
   )
 }

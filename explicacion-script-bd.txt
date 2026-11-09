@@ -2074,6 +2074,12 @@ Transferencia a «medio» (ya transferí; adjunto el comprobante en este
 chat)". Es una confirmación del cliente, no una prueba: la verificación
 real la hace el admin al ver la captura en WhatsApp y prender "Pago
 verificado" en el panel.
+ACTUALIZACIÓN (2026-11-09, pedido del dueño): se quitó la casilla por
+innecesaria. Con transferencia el pedido se envía directo; queda solo el
+aviso "adjunta ahí la captura del comprobante". El mensaje de WhatsApp
+lleva el medio y el número o llave al que se transfirió (ver
+lineasPagoWhatsapp en lib/mediosPago.js). La verificación sigue siendo
+la del admin con "Pago verificado".
 
 POR QUÉ SE BORRA EL CHECK: exigía comprobante_path en todo pedido por
 transferencia. Con el código nuevo ese campo va vacío y la inserción
