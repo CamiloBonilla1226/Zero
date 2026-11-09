@@ -2096,7 +2096,9 @@ SCRIPT SQL: scripts/migracion-comprobante-por-whatsapp.sql
 
 (con dos consultas de verificación que deben devolver 0 filas).
 
-ESTADO: PENDIENTE — el dueño debe correrlo antes de desplegar el código.
+ESTADO: YA SE CORRIÓ — el dueño lo ejecutó el 2026-11-09, antes de
+desplegar el código (confirmado por el dueño; el check y la política no
+se pueden revisar con la anon key).
 
 CONSECUENCIA EN EL CÓDIGO:
 - Checkout / PagoTransferencia: se quita el campo de la foto y se agrega
