@@ -2027,9 +2027,9 @@ consulta de verificación al final). Resumen:
     -- + las políticas "Clientes suben comprobantes de pago" (insert) y
     --   "Dueño o empleados con permiso ven comprobantes" (select).
 
-ESTADO: PENDIENTE — el dueño debe correrlo en el SQL Editor antes de
-desplegar el código (useNegocioConfig pide datos_pago en su select y,
-sin la columna, la carta no cargaría la configuración del negocio).
+ESTADO: YA SE CORRIÓ — el dueño lo ejecutó el 2026-11-09; verificado con
+una consulta de solo lectura (las 4 columnas responden y, sin sesión,
+el bucket comprobantes-pago no lista ningún archivo).
 
 CONSECUENCIA EN EL CÓDIGO:
 - useNegocioConfig: agrega datos_pago al select.
