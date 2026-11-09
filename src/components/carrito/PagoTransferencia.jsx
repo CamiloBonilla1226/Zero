@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { valorParaCopiar } from '../../lib/mediosPago'
+import { descargarQr, valorParaCopiar } from '../../lib/mediosPago'
 import { formatoPrecio } from '../../lib/tiposOferta'
 
 // Lo que ve el cliente al elegir "Transferencia": una pestaña por medio activo, los datos para
@@ -61,13 +61,8 @@ export function PagoTransferencia({
         {medio.datos.qr_url && (
           <figure className="pago-transferencia__qr">
             <img src={medio.datos.qr_url} alt={`Código QR para pagar con ${medio.nombre}`} loading="lazy" />
-            <figcaption>
-              Escanéalo desde la app de tu banco.{' '}
-              <a href={medio.datos.qr_url} target="_blank" rel="noopener noreferrer">
-                Abrir imagen
-              </a>{' '}
-              para guardarla si pagas desde este celular.
-            </figcaption>
+            <figcaption>Escanéalo desde la app de tu banco o descárgalo si pagas desde este celular.</figcaption>
+            <BotonDescargarQr key={medio.clave} qrUrl={medio.datos.qr_url} nombreMedio={medio.nombre} />
           </figure>
         )}
       </div>
@@ -81,6 +76,36 @@ export function PagoTransferencia({
       </label>
       {error && <span className="campo__error">{error}</span>}
     </div>
+  )
+}
+
+function BotonDescargarQr({ qrUrl, nombreMedio }) {
+  const [estado, setEstado] = useState(null)
+
+  useEffect(() => {
+    if (estado !== 'listo') return undefined
+    const temporizador = setTimeout(() => setEstado(null), 2500)
+    return () => clearTimeout(temporizador)
+  }, [estado])
+
+  const descargar = async () => {
+    setEstado('descargando')
+    const resultado = await descargarQr(qrUrl, nombreMedio)
+    setEstado(resultado === 'cancelado' ? null : 'listo')
+  }
+
+  return (
+    <button
+      type="button"
+      className="boton boton--secundario pago-transferencia__descargar-qr"
+      onClick={descargar}
+      disabled={estado === 'descargando'}
+    >
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+        <path d="M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M5 19h14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="square" />
+      </svg>
+      {estado === 'descargando' ? 'Preparando…' : estado === 'listo' ? 'QR listo' : 'Descargar QR'}
+    </button>
   )
 }
 
