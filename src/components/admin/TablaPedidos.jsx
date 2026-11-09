@@ -1,4 +1,7 @@
+import { useState } from 'react'
 import { textoSabores } from '../../lib/sabores'
+import { urlComprobantePago } from '../../lib/storage'
+import { Interruptor } from './Interruptor'
 
 const formatoPrecio = new Intl.NumberFormat('es-CO', {
   style: 'currency',
@@ -24,7 +27,63 @@ const ETIQUETA_ESTADO = {
   rechazado: 'Rechazado',
 }
 
-export function TablaPedidos({ pedidos, onActualizarEstado }) {
+// Método de pago del pedido (null en los anteriores a la sección 24: no se muestra nada).
+function PagoPedido({ pedido, onMarcarPagoVerificado }) {
+  const [abriendo, setAbriendo] = useState(false)
+  const [error, setError] = useState(null)
+
+  if (!pedido.metodo_pago) return null
+  if (pedido.metodo_pago === 'efectivo') {
+    return (
+      <div className="pedido-item__pago">
+        <span className="pedido-item__metodo">Efectivo</span>
+      </div>
+    )
+  }
+
+  // El bucket es privado: se pide un enlace firmado de 5 minutos. La pestaña se abre antes
+  // del await porque Safari bloquea un window.open que no sale directo del toque.
+  const verComprobante = async () => {
+    setError(null)
+    setAbriendo(true)
+    const pestana = window.open('', '_blank')
+    const { url, error: errorUrl } = await urlComprobantePago(pedido.comprobante_path)
+    setAbriendo(false)
+    if (errorUrl || !url) {
+      pestana?.close()
+      setError('No se pudo abrir el comprobante.')
+      console.error(errorUrl)
+      return
+    }
+    if (pestana) {
+      pestana.opener = null
+      pestana.location.href = url
+    } else {
+      window.location.href = url
+    }
+  }
+
+  return (
+    <div className="pedido-item__pago">
+      <span className={`pedido-item__metodo${pedido.pago_verificado ? ' pedido-item__metodo--verificado' : ' pedido-item__metodo--pendiente'}`}>
+        Transferencia · {pedido.pago_verificado ? 'Verificada' : 'Por verificar'}
+      </span>
+      {pedido.comprobante_path && (
+        <button type="button" className="boton boton--secundario boton--pequeno" onClick={verComprobante} disabled={abriendo}>
+          {abriendo ? 'Abriendo…' : 'Ver comprobante'}
+        </button>
+      )}
+      <Interruptor
+        activo={pedido.pago_verificado}
+        etiqueta="Pago verificado"
+        onCambiar={(valor) => onMarcarPagoVerificado(pedido.id, valor)}
+      />
+      {error && <span className="campo__error">{error}</span>}
+    </div>
+  )
+}
+
+export function TablaPedidos({ pedidos, onActualizarEstado, onMarcarPagoVerificado }) {
   if (pedidos.length === 0) {
     return <p className="texto-suave admin-vacio">No hay pedidos en este periodo.</p>
   }
@@ -64,6 +123,8 @@ export function TablaPedidos({ pedidos, onActualizarEstado }) {
               )
             })}
           </ul>
+
+          <PagoPedido pedido={pedido} onMarcarPagoVerificado={onMarcarPagoVerificado} />
 
           <div className="pedido-item__pie">
             <strong>{formatoPrecio.format(pedido.total)}</strong>

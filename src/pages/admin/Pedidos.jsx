@@ -12,7 +12,7 @@ import { useAuth } from '../../hooks/useAuth'
 import { useToast } from '../../hooks/useToast'
 
 export function Pedidos() {
-  const { pedidos, cargando, error, actualizarEstadoPedido } = usePedidos({ tiempoReal: true })
+  const { pedidos, cargando, error, actualizarEstadoPedido, marcarPagoVerificado } = usePedidos({ tiempoReal: true })
   const { nombre } = useAuth()
   const mostrarToast = useToast()
   const [filtros, setFiltros] = useState(FILTROS_PEDIDOS_INICIALES)
@@ -24,6 +24,12 @@ export function Pedidos() {
   const cambiarEstado = async (id, estado) => {
     const { exito } = await actualizarEstadoPedido(id, estado, nombre)
     mostrarToast(exito ? 'Estado del pedido actualizado' : 'No se pudo actualizar el estado', exito ? 'exito' : 'error')
+  }
+
+  const cambiarPagoVerificado = async (id, verificado) => {
+    const { exito } = await marcarPagoVerificado(id, verificado)
+    if (exito) mostrarToast(verificado ? 'Pago marcado como verificado' : 'Pago marcado como pendiente')
+    else mostrarToast('No se pudo actualizar el pago', 'error')
   }
 
   return (
@@ -44,7 +50,11 @@ export function Pedidos() {
               total={pedidosConsultables.length}
               mostrados={pedidosFiltrados.length}
             />
-            <TablaPedidos pedidos={pedidosFiltrados} onActualizarEstado={cambiarEstado} />
+            <TablaPedidos
+              pedidos={pedidosFiltrados}
+              onActualizarEstado={cambiarEstado}
+              onMarcarPagoVerificado={cambiarPagoVerificado}
+            />
           </>
         )}
       </main>

@@ -85,5 +85,17 @@ export function usePedidos({ tiempoReal = false } = {}) {
     [recargar]
   )
 
-  return { pedidos, cargando, error, recargar, crearPedido, actualizarEstadoPedido }
+  // Marca aparte del estado: el admin la prende cuando confirma que la transferencia llegó.
+  // Los pedidos se siguen manejando igual (mismos 5 estados), ver sección 24 de
+  // explicacion-script-bd.txt.
+  const marcarPagoVerificado = useCallback(
+    async (id, verificado) => {
+      const { error: errorActualizar } = await supabase.from('pedidos').update({ pago_verificado: verificado }).eq('id', id)
+      if (!errorActualizar) await recargar()
+      return { exito: !errorActualizar, error: errorActualizar }
+    },
+    [recargar]
+  )
+
+  return { pedidos, cargando, error, recargar, crearPedido, actualizarEstadoPedido, marcarPagoVerificado }
 }

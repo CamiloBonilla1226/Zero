@@ -2242,6 +2242,34 @@ body.admin .superposicion__panel::before {
   padding-left: var(--espacio-4);
 }
 
+/* Método de pago del pedido: transferencia por verificar en dorado, verificada en salvia. */
+.pedido-item__pago {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--espacio-2);
+  margin-top: var(--espacio-2);
+}
+
+.pedido-item__metodo {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 2px var(--espacio-2);
+  border: 1px solid var(--color-borde);
+  color: var(--color-texto-suave);
+}
+
+.pedido-item__metodo--pendiente {
+  border-color: var(--color-acento);
+  color: var(--color-acento);
+}
+
+.pedido-item__metodo--verificado {
+  border-color: var(--color-exito);
+  color: var(--color-exito);
+}
+
 .pedido-item__pie {
   display: flex;
   align-items: center;
