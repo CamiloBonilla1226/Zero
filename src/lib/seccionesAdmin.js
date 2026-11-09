@@ -10,7 +10,7 @@ export const PERMISOS_EMPLEADO = [
   { columna: 'puede_adiciones', clave: 'puedeAdiciones', etiqueta: 'Adiciones', descripcion: 'Crear y editar adiciones' },
   { columna: 'puede_sabores', clave: 'puedeSabores', etiqueta: 'Sabores', descripcion: 'Prender y apagar los sabores del día, crear y editar sabores' },
   { columna: 'puede_ofertas', clave: 'puedeOfertas', etiqueta: 'Ofertas', descripcion: 'Crear, activar y desactivar ofertas' },
-  { columna: 'puede_negocio', clave: 'puedeNegocio', etiqueta: 'Negocio', descripcion: 'Editar frase de inicio, dirección, redes y horario' },
+  { columna: 'puede_negocio', clave: 'puedeNegocio', etiqueta: 'Negocio', descripcion: 'Editar frase de inicio, dirección, redes, horario y datos de pago' },
 ]
 
 // Secciones del panel admin en el orden del menú lateral (AdminNav) y del swipe entre

@@ -2,8 +2,15 @@ import { useEffect, useState } from 'react'
 import { Interruptor } from './Interruptor'
 import { DIAS_ORDEN_SEMANA, ETIQUETA_DIA } from '../../lib/horario'
 import { mensajeAmigablePostgres } from '../../lib/erroresAmigables'
+import { ConfiguracionPagos } from './ConfiguracionPagos'
+import { MEDIOS_PAGO, enlaceSeguro, medioVacio } from '../../lib/mediosPago'
 
 const DIAS_FORMULARIO = DIAS_ORDEN_SEMANA
+
+// Completa cada medio con los campos vacíos, para que los inputs siempre sean controlados.
+function datosPagoIniciales(guardados) {
+  return Object.fromEntries(MEDIOS_PAGO.map((medio) => [medio.clave, { ...medioVacio(), ...(guardados?.[medio.clave] ?? {}) }]))
+}
 
 function horarioVacio() {
   return Object.fromEntries(DIAS_FORMULARIO.map((dia) => [dia, { cerrado: true, abre: '10:00', cierra: '22:00' }]))
@@ -31,6 +38,7 @@ export function FormularioNegocio({ configuracion, onGuardar }) {
     }
     return base
   })
+  const [datosPago, setDatosPago] = useState(() => datosPagoIniciales(configuracion?.datos_pago))
   const [guardando, setGuardando] = useState(false)
   const [error, setError] = useState(null)
 
@@ -53,6 +61,7 @@ export function FormularioNegocio({ configuracion, onGuardar }) {
       }
     }
     setHorario(base)
+    setDatosPago(datosPagoIniciales(configuracion.datos_pago))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [configuracion])
 
@@ -62,6 +71,16 @@ export function FormularioNegocio({ configuracion, onGuardar }) {
 
   const enviar = async (evento) => {
     evento.preventDefault()
+
+    const medioConEnlaceMalo = MEDIOS_PAGO.find((medio) => {
+      const enlace = datosPago[medio.clave].enlace.trim()
+      return datosPago[medio.clave].activo && enlace && !enlaceSeguro(enlace)
+    })
+    if (medioConEnlaceMalo) {
+      setError(`Revisa el enlace de pago de ${medioConEnlaceMalo.nombre}: debe empezar por https://`)
+      return
+    }
+
     setGuardando(true)
     setError(null)
 
@@ -81,6 +100,22 @@ export function FormularioNegocio({ configuracion, onGuardar }) {
         whatsapp: redes.whatsapp.trim(),
       },
       horario: horarioFinal,
+      datos_pago: Object.fromEntries(
+        MEDIOS_PAGO.map((medio) => {
+          const datos = datosPago[medio.clave]
+          return [
+            medio.clave,
+            {
+              activo: datos.activo,
+              numero: datos.numero.trim(),
+              titular: datos.titular.trim(),
+              ...(medio.conTipoCuenta && { tipo_cuenta: datos.tipo_cuenta }),
+              enlace: datos.enlace.trim(),
+              qr_url: datos.qr_url,
+            },
+          ]
+        })
+      ),
     })
 
     setGuardando(false)
@@ -190,6 +225,8 @@ export function FormularioNegocio({ configuracion, onGuardar }) {
           ))}
         </div>
       </section>
+
+      <ConfiguracionPagos datosPago={datosPago} onCambiar={setDatosPago} />
 
       <div className="negocio-guardar">
         {error && <p className="campo__error">{error}</p>}

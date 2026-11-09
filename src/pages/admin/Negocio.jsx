@@ -22,7 +22,7 @@ export function Negocio() {
       <main className="contenedor admin-negocio">
         <EncabezadoPagina
           titulo="Negocio"
-          descripcion="Datos, redes y horario que ven tus clientes en la carta."
+          descripcion="Datos, redes, horario y pagos que ven tus clientes en la carta."
         />
 
         {cargando && <p className="texto-suave">Cargando…</p>}

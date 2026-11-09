@@ -2970,6 +2970,46 @@ body.admin .toast--error {
 }
 
 /* Barra de guardar pegada al borde inferior de la pantalla mientras se edita. */
+/* Admin → Negocio: un bloque por medio de transferencia (Nequi, Bancolombia, Bre-B). */
+.medio-pago-admin {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid var(--color-borde);
+}
+
+.medio-pago-admin--activo {
+  border-color: var(--color-primario);
+}
+
+.medio-pago-admin__encabezado {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--espacio-3);
+}
+
+.medio-pago-admin__campos {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.medio-pago-admin__qr {
+  width: 160px;
+  height: 160px;
+  object-fit: contain;
+  background: #fff;
+  border: 1px solid var(--color-borde);
+}
+
+.medio-pago-admin__acciones-qr {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--espacio-2);
+}
+
 .negocio-guardar {
   position: sticky;
   bottom: 0;

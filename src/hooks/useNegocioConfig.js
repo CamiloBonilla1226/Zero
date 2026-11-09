@@ -18,7 +18,7 @@ export function useNegocioConfig() {
 
     const { data, error: errorConsulta } = await supabase
       .from('negocio_config')
-      .select('descripcion, direccion, horario, redes_sociales, adiciones_en_menu')
+      .select('descripcion, direccion, horario, redes_sociales, adiciones_en_menu, datos_pago')
       .eq('negocio_id', negocioConfig.negocioId)
       .maybeSingle()
 
