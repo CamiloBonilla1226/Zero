@@ -7,6 +7,7 @@ import { useSwipeParaCerrar } from '../../hooks/useSwipeParaCerrar'
 import { useVariantesProducto } from '../../hooks/useVariantesProducto'
 import { precioMinimo } from '../../lib/variantes'
 import { cantidadSabores } from '../../lib/sabores'
+import { admiteAdiciones, cantidadAdiciones } from '../../lib/adiciones'
 
 const formatoPrecio = new Intl.NumberFormat('es-CO', {
   style: 'currency',
@@ -33,7 +34,10 @@ function precioEfectivo(producto, variante) {
 // de poder agregar. No cambian el precio.
 // Adiciones (`adiciones`): cada una con contador, se pueden repetir (Leche x2) y ninguna es
 // obligatoria. Igual que los sabores, se guardan como { [id]: veces } y salen como una entrada
-// por unidad en opcionesElegidas, que es lo que suman el carrito y el pedido.
+// por unidad en opcionesElegidas, que es lo que suman el carrito y el pedido. El producto o la
+// variante elegida fija un MÁXIMO (cantidad_adiciones, sección 26 del script): null = sin
+// límite, 0 = no admite. Con variantes, las adiciones aparecen al elegir la variante, porque
+// hasta entonces no se sabe cuántas caben.
 // Sirve para sabores y adiciones: [{ id }, { id }, …] → { [id]: veces }.
 function conteoInicial(elegidos = []) {
   const conteo = {}
@@ -66,12 +70,16 @@ export function OpcionesProducto({ producto, adiciones = [], sabores = [], itemI
     [sabores, conteoSabores]
   )
   const faltanSabores = Math.max(0, saboresPedidos - saboresElegidos.length)
+  const maximoAdiciones = cantidadAdiciones(producto, varianteSeleccionada)
 
-  // Si la nueva variante pide menos sabores de los que ya se marcaron, se empieza de cero en vez
-  // de adivinar cuáles quitar.
+  // Si la nueva variante pide menos sabores (o admite menos adiciones) de los que ya se
+  // marcaron, se empieza de cero en vez de adivinar cuáles quitar.
   const elegirVariante = (variante) => {
     setVarianteId(variante.id)
     if (saboresElegidos.length > (variante.cantidad_sabores ?? 0)) setConteoSabores({})
+    const maximoNuevo = cantidadAdiciones(producto, variante)
+    const elegidasAhora = Object.values(conteoAdiciones).reduce((suma, veces) => suma + veces, 0)
+    if (maximoNuevo !== null && elegidasAhora > maximoNuevo) setConteoAdiciones({})
   }
 
   const cambiarSabor = (saborId, delta) => {
@@ -89,7 +97,9 @@ export function OpcionesProducto({ producto, adiciones = [], sabores = [], itemI
 
   const cambiarAdicion = (adicionId, delta) => {
     setConteoAdiciones((actual) => {
+      const total = Object.values(actual).reduce((suma, veces) => suma + veces, 0)
       const veces = actual[adicionId] ?? 0
+      if (delta > 0 && maximoAdiciones !== null && total >= maximoAdiciones) return actual
       if (delta < 0 && veces === 0) return actual
       return { ...actual, [adicionId]: veces + delta }
     })
@@ -109,6 +119,12 @@ export function OpcionesProducto({ producto, adiciones = [], sabores = [], itemI
       ),
     [adiciones, conteoAdiciones]
   )
+
+  // Solo pasa al editar una línea cuyo máximo bajó después (el dueño lo cambió en el panel): hay
+  // que quitar adiciones antes de poder actualizar.
+  const sobranAdiciones = maximoAdiciones === null ? 0 : Math.max(0, opcionesElegidas.length - maximoAdiciones)
+  const mostrarAdiciones =
+    !faltaElegirVariante && (admiteAdiciones(maximoAdiciones) || opcionesElegidas.length > 0)
 
   const subtotal = useMemo(() => {
     const extras = opcionesElegidas.reduce((suma, o) => suma + (o.precio_extra ?? 0), 0)
@@ -173,12 +189,15 @@ export function OpcionesProducto({ producto, adiciones = [], sabores = [], itemI
           />
         )}
 
-        <ListaAdiciones
-          adiciones={adiciones}
-          conteo={conteoAdiciones}
-          elegidas={opcionesElegidas.length}
-          onCambiar={cambiarAdicion}
-        />
+        {mostrarAdiciones && (
+          <ListaAdiciones
+            adiciones={adiciones}
+            conteo={conteoAdiciones}
+            elegidas={opcionesElegidas.length}
+            maximo={maximoAdiciones}
+            onCambiar={cambiarAdicion}
+          />
+        )}
 
         <div className="opciones-producto__cantidad">
           <span>Cantidad</span>
@@ -200,14 +219,16 @@ export function OpcionesProducto({ producto, adiciones = [], sabores = [], itemI
           <button
             type="button"
             className="boton"
-            disabled={faltaElegirVariante || faltanSabores > 0}
+            disabled={faltaElegirVariante || faltanSabores > 0 || sobranAdiciones > 0}
             onClick={() => onConfirmar(cantidad, opcionesElegidas, varianteSeleccionada, saboresElegidos)}
           >
             {faltaElegirVariante
               ? 'Elige una opción'
               : faltanSabores > 0
                 ? `Elige ${faltanSabores} ${faltanSabores === 1 ? 'sabor' : 'sabores'} más`
-                : `${editando ? 'Actualizar' : 'Agregar'} · ${formatoPrecio.format(subtotal)}`}
+                : sobranAdiciones > 0
+                  ? `Quita ${sobranAdiciones} ${sobranAdiciones === 1 ? 'adición' : 'adiciones'}`
+                  : `${editando ? 'Actualizar' : 'Agregar'} · ${formatoPrecio.format(subtotal)}`}
           </button>
         </div>
       </div>
