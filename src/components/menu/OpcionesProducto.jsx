@@ -31,18 +31,21 @@ function precioEfectivo(producto, variante) {
 // Sabores (`sabores`: los disponibles hoy del catálogo del negocio, ver useSabores.js): si el
 // producto o la variante elegida pide N, hay que elegir exactamente N (se pueden repetir) antes
 // de poder agregar. No cambian el precio.
-function conteoInicial(saboresElegidos = []) {
+// Adiciones (`adiciones`): cada una con contador, se pueden repetir (Leche x2) y ninguna es
+// obligatoria. Igual que los sabores, se guardan como { [id]: veces } y salen como una entrada
+// por unidad en opcionesElegidas, que es lo que suman el carrito y el pedido.
+// Sirve para sabores y adiciones: [{ id }, { id }, …] → { [id]: veces }.
+function conteoInicial(elegidos = []) {
   const conteo = {}
-  for (const sabor of saboresElegidos) conteo[sabor.id] = (conteo[sabor.id] ?? 0) + 1
+  for (const elegido of elegidos) conteo[elegido.id] = (conteo[elegido.id] ?? 0) + 1
   return conteo
 }
 
 export function OpcionesProducto({ producto, adiciones = [], sabores = [], itemInicial = null, onConfirmar, onCancelar }) {
   const { variantes } = useVariantesProducto(producto.id, { soloDisponibles: true })
-  // Las adiciones elegidas se guardan con la forma de la tabla (`precio`), ver opcionesElegidas.
-  const [seleccionadas, setSeleccionadas] = useState(() =>
-    (itemInicial?.opcionesElegidas ?? []).map((o) => ({ id: o.id, nombre: o.nombre, precio: o.precio_extra }))
-  )
+  // { [adicionId]: veces }. Al editar una línea solo cuentan las adiciones que siguen
+  // disponibles (las mismas que se pueden ver y cambiar aquí).
+  const [conteoAdiciones, setConteoAdiciones] = useState(() => conteoInicial(itemInicial?.opcionesElegidas))
   // Se guarda el id y no el objeto: las variantes llegan después (consulta aparte), y así la
   // variante de la línea que se edita queda marcada apenas cargan.
   const [varianteId, setVarianteId] = useState(itemInicial?.varianteId ?? null)
@@ -84,19 +87,27 @@ export function OpcionesProducto({ producto, adiciones = [], sabores = [], itemI
   // Con un solo sabor se elige como un radio: tocar otro reemplaza el anterior.
   const elegirSaborUnico = (saborId) => setConteoSabores({ [saborId]: 1 })
 
-  const alternarAdicion = (adicion) => {
-    setSeleccionadas((actuales) => {
-      const yaElegida = actuales.some((a) => a.id === adicion.id)
-      return yaElegida ? actuales.filter((a) => a.id !== adicion.id) : [...actuales, adicion]
+  const cambiarAdicion = (adicionId, delta) => {
+    setConteoAdiciones((actual) => {
+      const veces = actual[adicionId] ?? 0
+      if (delta < 0 && veces === 0) return actual
+      return { ...actual, [adicionId]: veces + delta }
     })
   }
 
-  // Se traduce `precio` (campo de la tabla `adiciones`) a `precio_extra`, que es el nombre
-  // que ya esperan useCarrito.js/whatsapp.js/Checkout.jsx desde que existían las opciones
-  // agrupadas — evita tocar esos archivos por un simple cambio de nombre de columna.
+  // Una entrada por unidad, en el orden del catálogo: Leche x2 = dos entradas iguales. Se
+  // traduce `precio` (campo de la tabla `adiciones`) a `precio_extra`, que es el nombre que ya
+  // esperan useCarrito.js/whatsapp.js/Checkout.jsx desde que existían las opciones agrupadas.
   const opcionesElegidas = useMemo(
-    () => seleccionadas.map((adicion) => ({ id: adicion.id, nombre: adicion.nombre, precio_extra: adicion.precio })),
-    [seleccionadas]
+    () =>
+      adiciones.flatMap((adicion) =>
+        Array.from({ length: conteoAdiciones[adicion.id] ?? 0 }, () => ({
+          id: adicion.id,
+          nombre: adicion.nombre,
+          precio_extra: adicion.precio,
+        }))
+      ),
+    [adiciones, conteoAdiciones]
   )
 
   const subtotal = useMemo(() => {
@@ -162,7 +173,12 @@ export function OpcionesProducto({ producto, adiciones = [], sabores = [], itemI
           />
         )}
 
-        <ListaAdiciones adiciones={adiciones} seleccionadas={seleccionadas} onAlternar={alternarAdicion} />
+        <ListaAdiciones
+          adiciones={adiciones}
+          conteo={conteoAdiciones}
+          elegidas={opcionesElegidas.length}
+          onCambiar={cambiarAdicion}
+        />
 
         <div className="opciones-producto__cantidad">
           <span>Cantidad</span>
