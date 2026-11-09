@@ -21,3 +21,14 @@ export function admiteAdiciones(maximo) {
 export function textoAdiciones(opciones = []) {
   return textoSabores(opciones.map((o) => o.nombre))
 }
+
+export const MAX_ADICIONES = 20
+
+// Del campo del formulario al valor de la columna: vacío = null (sin límite); si no, un entero
+// entre 0 y MAX_ADICIONES (el mismo rango del check de la base).
+export function normalizarMaximoAdiciones(valor) {
+  if (valor === '' || valor == null) return null
+  const numero = Math.trunc(Number(valor))
+  if (Number.isNaN(numero)) return null
+  return Math.min(MAX_ADICIONES, Math.max(0, numero))
+}

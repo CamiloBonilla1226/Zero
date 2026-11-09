@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { negocioConfig } from '../config/negocio.config'
+import { normalizarMaximoAdiciones } from '../lib/adiciones'
 
 // Trae cada producto con sus categorías (un producto puede estar en varias, a través de la
 // tabla productos_categorias — ver explicacion-script-bd.txt, sección 16). Las adiciones no
@@ -69,6 +70,8 @@ function verificarAfectados(data, esperados) {
 // si falla (ver crearProducto/actualizarProducto). `precio_carta_fisica` vacío = la carta
 // física usa el mismo precio (ver lib/preciosCartaFisica.js). `descripcion` (lo que trae ese
 // tamaño) y `cantidad_sabores` (cuántos sabores se eligen, 0 = ninguno) son opcionales.
+// `cantidad_adiciones`: máximo de adiciones con esa variante (vacío = sin límite, 0 = ninguna;
+// sección 26 del script).
 async function insertarVariantes(productoId, variantes) {
   const filas = variantes.map((variante, indice) => ({
     producto_id: productoId,
@@ -76,6 +79,7 @@ async function insertarVariantes(productoId, variantes) {
     nombre: variante.nombre.trim(),
     descripcion: variante.descripcion?.trim() || null,
     cantidad_sabores: Number(variante.cantidad_sabores) || 0,
+    cantidad_adiciones: normalizarMaximoAdiciones(variante.cantidad_adiciones),
     precio: Number(variante.precio) || 0,
     precio_carta_fisica:
       variante.precio_carta_fisica == null || variante.precio_carta_fisica === ''
