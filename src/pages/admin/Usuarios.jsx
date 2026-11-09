@@ -18,11 +18,10 @@ export function Usuarios() {
   const mostrarToast = useToast()
   const confirmar = useConfirmacion()
 
-  // Esta pantalla es para que el dueño administre a SUS empleados: no tiene sentido que se
-  // vea a sí mismo en la lista (ni podría eliminarse ni tendría nada que hacer con su propia
-  // fila). Como cada negocio tiene un único dueño, ocultar todas las filas con rol "dueño"
-  // equivale a ocultar la del dueño que está mirando el panel, sin depender de comparar IDs
-  // (el id de usuarios_admin no es el mismo que el id de auth.users de la sesión).
+  // Esta pantalla es para que el dueño administre a SUS empleados, así que se ocultan todas
+  // las filas con rol "dueño": la suya y la de los otros dueños (ZÉRO tiene dos). Un dueño no
+  // debe poder eliminar ni desactivar a otro desde aquí; los dueños se dan de alta y se editan
+  // con scripts/cambiar-duenos-zero.sql.
   const empleados = usuarios.filter((usuario) => usuario.rol !== 'dueño')
 
   const guardarEmpleado = async (numero, contrasena, nombre) => {

@@ -121,3 +121,30 @@ RESUMEN — QUÉ SE HACE UNA SOLA VEZ VS. QUÉ SE REPITE
 - Una vez que existe el primer dueño, TODOS los usuarios siguientes de ese
   negocio (más dueños o empleados) se crean desde el panel admin mismo,
   sin volver a tocar Supabase manualmente.
+
+
+CAMBIAR LOS DATOS DE UN DUEÑO O AGREGAR UN SEGUNDO DUEÑO (2026-11-09)
+----------------------------------------------------------------
+ZÉRO tiene dos dueños. El panel no edita número, nombre ni contraseña
+de un dueño, y la sección Usuarios solo crea empleados (oculta a todos
+los dueños para que uno no pueda eliminar al otro). Para esos cambios
+hay un script con pasos y validaciones:
+
+    scripts/cambiar-duenos-zero.sql
+
+- PASO 1 cambia número (usuario), nombre y contraseña del dueño
+  actual: actualiza auth.users (correo interno y contraseña con
+  bcrypt), auth.identities y usuarios_admin juntos.
+- PASOS 2 y 3 dan de alta otro dueño (igual que este manual, pero
+  validando que la cuenta exista y que el número no esté repetido).
+
+Dos detalles que este manual no tenía y el script sí respeta:
+- La fila de usuarios_admin debe tener id = el id de auth.users (así
+  la crea la Edge Function crear-usuario-admin, y
+  eliminar-usuario-admin borra la cuenta de Auth usando ese id).
+- Al cambiar el número de un dueño hay que cerrar sesión y volver a
+  entrar con el número nuevo: la sesión abierta sigue con el correo
+  viejo hasta que se renueva.
+
+Los datos reales (números y contraseñas) se escriben solo en el SQL
+Editor de Supabase, nunca en el archivo del repositorio.
