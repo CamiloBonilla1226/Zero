@@ -3,7 +3,7 @@ import { Interruptor } from './Interruptor'
 import { DIAS_ORDEN_SEMANA, ETIQUETA_DIA } from '../../lib/horario'
 import { mensajeAmigablePostgres } from '../../lib/erroresAmigables'
 import { ConfiguracionPagos } from './ConfiguracionPagos'
-import { MEDIOS_PAGO, enlaceSeguro, medioVacio } from '../../lib/mediosPago'
+import { MEDIOS_PAGO, medioVacio } from '../../lib/mediosPago'
 
 const DIAS_FORMULARIO = DIAS_ORDEN_SEMANA
 
@@ -72,12 +72,10 @@ export function FormularioNegocio({ configuracion, onGuardar }) {
   const enviar = async (evento) => {
     evento.preventDefault()
 
-    const medioConEnlaceMalo = MEDIOS_PAGO.find((medio) => {
-      const enlace = datosPago[medio.clave].enlace.trim()
-      return datosPago[medio.clave].activo && enlace && !enlaceSeguro(enlace)
-    })
-    if (medioConEnlaceMalo) {
-      setError(`Revisa el enlace de pago de ${medioConEnlaceMalo.nombre}: debe empezar por https://`)
+    // Un medio activo sin número o llave no le sirve al cliente (no tendría qué copiar).
+    const medioSinNumero = MEDIOS_PAGO.find((medio) => datosPago[medio.clave].activo && !datosPago[medio.clave].numero.trim())
+    if (medioSinNumero) {
+      setError(`Escribe ${medioSinNumero.etiquetaNumero.toLowerCase()} de ${medioSinNumero.nombre} o apágalo.`)
       return
     }
 
@@ -110,7 +108,6 @@ export function FormularioNegocio({ configuracion, onGuardar }) {
               numero: datos.numero.trim(),
               titular: datos.titular.trim(),
               ...(medio.conTipoCuenta && { tipo_cuenta: datos.tipo_cuenta }),
-              enlace: datos.enlace.trim(),
               qr_url: datos.qr_url,
             },
           ]

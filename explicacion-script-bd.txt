@@ -1947,8 +1947,9 @@ comprobantes-pago con 2 políticas). Ninguna política de tabla cambia.
 
 QUÉ ES (2026-11-09, pedido del dueño): en el checkout el cliente elige
 cómo paga. Con efectivo todo sigue igual. Con transferencia (Nequi,
-Bancolombia o Bre-B) ve los datos de la cuenta, un QR y un enlace
-directo para pagar, y NO puede enviar el pedido hasta subir el
+Bancolombia o Bre-B) ve el número de cuenta, celular o llave con un
+botón para copiarlo (y el QR si el negocio lo subió), y NO puede enviar
+el pedido hasta subir el
 comprobante. El link de WhatsApp (wa.me) solo lleva texto, así que el
 comprobante no puede viajar por ahí: se guarda en Storage y el panel lo
 muestra junto al pedido. Los pedidos se manejan igual que siempre (mismos
@@ -1967,12 +1968,16 @@ CÓMO FUNCIONA CADA CAMPO:
 - negocio_config.datos_pago: JSON con un objeto por medio, todos
   opcionales:
       {
-        "nequi":       { "activo", "numero", "titular", "enlace", "qr_url" },
+        "nequi":       { "activo", "numero", "titular", "qr_url" },
         "bancolombia": { "activo", "tipo_cuenta", "numero", "titular",
-                         "enlace", "qr_url" },
+                         "qr_url" },
         "breb":        { "activo", "numero" (la llave), "titular",
-                         "enlace", "qr_url" }
+                         "qr_url" }
       }
+  Un medio activo exige numero (el panel no deja guardarlo vacío). El
+  campo "enlace" (enlace directo de pago) existió el mismo 2026-11-09 y
+  se quitó porque los bancos no dan un enlace útil: si queda en alguna
+  fila guardada, el código lo ignora.
   Es público a propósito (negocio_config ya tiene lectura pública): son
   los datos que el cliente necesita para pagar. El QR se sube al bucket
   público productos-imagenes, carpeta del negocio, con la política de
@@ -2036,12 +2041,12 @@ CONSECUENCIA EN EL CÓDIGO:
 - lib/mediosPago.js: medios disponibles (nequi, bancolombia, breb), sus
   etiquetas y cuáles están configurados.
 - FormularioNegocio (Admin → Negocio): sección "Pagos por transferencia"
-  con un bloque por medio (activo, número o llave, titular, enlace y QR).
+  con un bloque por medio (activo, número o llave, titular y QR).
 - lib/storage.js: subirComprobantePago (comprime a WebP sin recortar) y
   urlComprobantePago (enlace firmado de 5 minutos), y subirImagenQr.
 - Checkout: selector Efectivo / Transferencia (Transferencia solo aparece
   si hay al menos un medio activo); con transferencia, pestañas por
-  medio, datos con botón copiar, QR, botón "Pagar con …" al enlace, y el
+  medio, el número o llave en un recuadro que se copia al tocarlo, QR, y el
   campo del comprobante. Sin comprobante el botón de enviar no se activa.
 - lib/whatsapp.js: línea "Pago: …" en el mensaje.
 - TablaPedidos: etiqueta del método, botón "Ver comprobante" y marca

@@ -1698,7 +1698,7 @@ body.admin .superposicion__panel::before {
 }
 
 /* Método de pago: dos tarjetas tipo radio. Con transferencia se despliegan los datos de la
-   cuenta, el QR, el enlace directo y el comprobante (PagoTransferencia.jsx). */
+   cuenta para copiar, el QR y el comprobante (PagoTransferencia.jsx). */
 .checkout__pago {
   display: flex;
   flex-direction: column;
@@ -1812,14 +1812,6 @@ body.admin .superposicion__panel::before {
   font-variant-numeric: tabular-nums;
 }
 
-.pago-transferencia__dato {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.pago-transferencia__dato div,
 .pago-transferencia__titular {
   display: flex;
   flex-direction: column;
@@ -1828,22 +1820,76 @@ body.admin .superposicion__panel::before {
   margin: 0;
 }
 
-.pago-transferencia__dato span,
 .pago-transferencia__titular span {
   font-size: 0.75rem;
   color: var(--color-texto-suave);
 }
 
-.pago-transferencia__dato strong {
-  font-size: 1.0625rem;
+/* El número/llave es lo principal: recuadro completo tocable que copia al portapapeles. */
+.pago-transferencia__dato {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 64px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-primario);
+  background: color-mix(in srgb, var(--color-primario) 8%, transparent);
+  color: var(--color-texto);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease, transform 120ms var(--curva-salida);
+}
+
+.pago-transferencia__dato:active {
+  transform: scale(0.98);
+}
+
+.pago-transferencia__dato:focus-visible {
+  outline: 2px solid var(--marca-dorado-claro);
+  outline-offset: 2px;
+}
+
+.pago-transferencia__dato--copiado {
+  border-color: var(--color-exito);
+  background: color-mix(in srgb, var(--color-exito) 12%, transparent);
+}
+
+.pago-transferencia__dato-texto {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.pago-transferencia__dato-texto span {
+  font-size: 0.75rem;
+  color: var(--color-texto-suave);
+}
+
+.pago-transferencia__dato-texto strong {
+  font-size: 1.25rem;
+  letter-spacing: 0.02em;
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
 
-.pago-transferencia__enlace {
-  min-height: 48px;
-  justify-content: center;
-  text-decoration: none;
+.pago-transferencia__copiar {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-primario);
+}
+
+.pago-transferencia__dato--copiado .pago-transferencia__copiar {
+  color: var(--color-exito);
 }
 
 .pago-transferencia__qr {

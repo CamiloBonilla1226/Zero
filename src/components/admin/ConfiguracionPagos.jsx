@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Interruptor } from './Interruptor'
-import { MEDIOS_PAGO, TIPOS_CUENTA, enlaceSeguro } from '../../lib/mediosPago'
+import { MEDIOS_PAGO, TIPOS_CUENTA } from '../../lib/mediosPago'
 import { subirImagenQr } from '../../lib/storage'
 import { negocioConfig } from '../../config/negocio.config'
 
@@ -13,8 +13,8 @@ export function ConfiguracionPagos({ datosPago, onCambiar }) {
       <header className="negocio-seccion__encabezado">
         <h2>Pagos por transferencia</h2>
         <p>
-          Activa los medios que aceptas. El cliente verá estos datos, el QR y el enlace, y tendrá que subir el
-          comprobante antes de enviar el pedido.
+          Activa los medios que aceptas. El cliente verá el número o la llave con un botón para copiarlo (y el QR si
+          lo subes), y tendrá que subir el comprobante antes de enviar el pedido.
         </p>
       </header>
       {MEDIOS_PAGO.map((medio) => (
@@ -34,7 +34,6 @@ export function ConfiguracionPagos({ datosPago, onCambiar }) {
 function MedioPago({ medio, datos, onCambiar }) {
   const [subiendo, setSubiendo] = useState(false)
   const [errorQr, setErrorQr] = useState(null)
-  const enlaceInvalido = datos.enlace.trim() !== '' && !enlaceSeguro(datos.enlace)
 
   const subirQr = async (evento) => {
     const archivo = evento.target.files?.[0]
@@ -93,22 +92,6 @@ function MedioPago({ medio, datos, onCambiar }) {
               placeholder="Nombre que ve el cliente al transferir"
             />
           </label>
-          <label className="campo">
-            <span>Enlace directo de pago (opcional)</span>
-            <input
-              type="url"
-              value={datos.enlace}
-              onChange={(e) => onCambiar('enlace', e.target.value)}
-              maxLength={300}
-              placeholder={medio.placeholderEnlace}
-            />
-            {enlaceInvalido ? (
-              <span className="campo__error">Debe ser un enlace completo que empiece por https://</span>
-            ) : (
-              <small className="campo__ayuda">En el checkout sale como botón "Pagar con {medio.nombre}".</small>
-            )}
-          </label>
-
           <div className="campo">
             <span>Código QR (opcional)</span>
             {datos.qr_url && <img className="medio-pago-admin__qr" src={datos.qr_url} alt={`QR de ${medio.nombre}`} />}

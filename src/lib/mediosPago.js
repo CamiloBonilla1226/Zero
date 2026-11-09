@@ -7,36 +7,42 @@ export const MEDIOS_PAGO = [
     nombre: 'Nequi',
     etiquetaNumero: 'Número de celular',
     placeholderNumero: '300 123 4567',
-    placeholderEnlace: 'Enlace de cobro de Nequi',
+    copiarSoloDigitos: true,
   },
   {
     clave: 'bancolombia',
     nombre: 'Bancolombia',
     etiquetaNumero: 'Número de cuenta',
     placeholderNumero: '123-456789-01',
-    placeholderEnlace: 'Enlace de pago de Bancolombia',
     conTipoCuenta: true,
+    copiarSoloDigitos: true,
   },
   {
     clave: 'breb',
     nombre: 'Bre-B',
     etiquetaNumero: 'Llave Bre-B',
     placeholderNumero: '@zero o celular',
-    placeholderEnlace: 'Enlace de cobro Bre-B',
   },
 ]
 
 export const TIPOS_CUENTA = ['Ahorros', 'Corriente']
 
 export function medioVacio() {
-  return { activo: false, numero: '', titular: '', tipo_cuenta: TIPOS_CUENTA[0], enlace: '', qr_url: '' }
+  return { activo: false, numero: '', titular: '', tipo_cuenta: TIPOS_CUENTA[0], qr_url: '' }
 }
 
-// Un medio sirve en el checkout si está activo y tiene al menos una forma de pagar: número
-// o llave para transferir a mano, el QR o el enlace directo.
+// Un medio sirve en el checkout si está activo y tiene número de cuenta, celular o llave: es
+// el dato que el cliente copia para transferir (el QR es un complemento opcional).
 export function medioUtilizable(datos) {
-  if (!datos?.activo) return false
-  return Boolean(datos.numero?.trim() || datos.qr_url || datos.enlace?.trim())
+  return Boolean(datos?.activo && datos.numero?.trim())
+}
+
+// Lo que se copia al portapapeles: en Nequi y Bancolombia solo los dígitos ("300 123 4567" →
+// "3001234567"), porque así lo piden las apps de los bancos; la llave Bre-B va tal cual
+// (puede ser un @alias o un correo).
+export function valorParaCopiar(medio, numero) {
+  const texto = numero.trim()
+  return medio.copiarSoloDigitos ? texto.replace(/\D/g, '') : texto
 }
 
 // Medios listos para mostrar al cliente, con su configuración pegada.
@@ -47,15 +53,3 @@ export function mediosDisponibles(datosPago) {
   }))
 }
 
-// Solo se aceptan enlaces http(s): el valor lo escribe el dueño, pero se abre en el
-// navegador del cliente, así que nunca se deja pasar un javascript: u otro esquema.
-export function enlaceSeguro(enlace) {
-  const texto = enlace?.trim()
-  if (!texto) return null
-  try {
-    const url = new URL(texto)
-    return url.protocol === 'https:' || url.protocol === 'http:' ? url.href : null
-  } catch {
-    return null
-  }
-}
