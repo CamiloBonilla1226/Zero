@@ -246,6 +246,33 @@ function useAuthInterno() {
     await supabase.auth.signOut()
   }, [])
 
+  // Cambia la contraseña de la cuenta con sesión abierta (nunca la de otro usuario: Supabase
+  // Auth solo deja que cada sesión cambie la suya). Primero se comprueba la contraseña actual
+  // con un inicio de sesión, para que quien encuentre el celular desbloqueado con el panel
+  // abierto no pueda cambiarla y dejar al dueño por fuera.
+  const cambiarContrasena = useCallback(
+    async (actual, nueva) => {
+      const correo = estado.usuario?.email
+      if (!correo) return { exito: false, error: new Error('No hay una sesión abierta.') }
+
+      const { error: errorVerificar } = await supabase.auth.signInWithPassword({ email: correo, password: actual })
+      if (errorVerificar) return { exito: false, error: new Error('La contraseña actual no es correcta.') }
+
+      const { error: errorCambio } = await supabase.auth.updateUser({ password: nueva })
+      if (errorCambio) {
+        const mensaje =
+          errorCambio.code === 'same_password'
+            ? 'La contraseña nueva debe ser distinta de la actual.'
+            : errorCambio.code === 'weak_password'
+              ? 'La contraseña nueva es muy débil: usa al menos 6 caracteres.'
+              : 'No se pudo cambiar la contraseña. Intenta de nuevo en un momento.'
+        return { exito: false, error: new Error(mensaje) }
+      }
+      return { exito: true }
+    },
+    [estado.usuario]
+  )
+
   const esDueno = estado.rol === 'dueño'
   // Que Supabase Auth acepte la sesión no basta: si el dueño ya borró (o desactivó) la
   // fila de este usuario en usuarios_admin, la cuenta de Auth puede seguir viva un rato
@@ -278,6 +305,7 @@ function useAuthInterno() {
     error,
     iniciarSesion,
     cerrarSesion,
+    cambiarContrasena,
   }
 }
 

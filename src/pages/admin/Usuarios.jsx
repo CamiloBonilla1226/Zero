@@ -3,6 +3,8 @@ import { AdminNav } from '../../components/admin/AdminNav'
 import { EncabezadoPagina, BotonCrear } from '../../components/admin/EncabezadoPagina'
 import { TablaUsuarios } from '../../components/admin/TablaUsuarios'
 import { FormularioEmpleado } from '../../components/admin/FormularioEmpleado'
+import { FormularioContrasena } from '../../components/admin/FormularioContrasena'
+import { useAuth } from '../../hooks/useAuth'
 import { useUsuariosAdmin } from '../../hooks/useUsuariosAdmin'
 import { useSwipeParaCerrar } from '../../hooks/useSwipeParaCerrar'
 import { alSoltarFondo } from '../../lib/superposicion'
@@ -12,8 +14,10 @@ import { useConfirmacion } from '../../hooks/useConfirmacion'
 export function Usuarios() {
   const { usuarios, cargando, error, crearEmpleado, eliminarUsuario, toggleActivo, togglePermiso } = useUsuariosAdmin()
 
-  const [creando, setCreando] = useState(false)
-  const cerrarModal = () => setCreando(false)
+  const { nombre, cambiarContrasena } = useAuth()
+  // Un solo modal a la vez: 'empleado' (crear empleado) o 'contrasena' (cambiar la propia).
+  const [modal, setModal] = useState(null)
+  const cerrarModal = () => setModal(null)
   const swipe = useSwipeParaCerrar(cerrarModal)
   const mostrarToast = useToast()
   const confirmar = useConfirmacion()
@@ -27,8 +31,17 @@ export function Usuarios() {
   const guardarEmpleado = async (numero, contrasena, nombre) => {
     const resultado = await crearEmpleado(numero, contrasena, nombre)
     if (resultado.exito) {
-      setCreando(false)
+      setModal(null)
       mostrarToast('Empleado creado')
+    }
+    return resultado
+  }
+
+  const guardarContrasena = async (actual, nueva) => {
+    const resultado = await cambiarContrasena(actual, nueva)
+    if (resultado.exito) {
+      setModal(null)
+      mostrarToast('Contraseña cambiada. Úsala la próxima vez que inicies sesión.')
     }
     return resultado
   }
@@ -64,8 +77,18 @@ export function Usuarios() {
         <EncabezadoPagina
           titulo="Usuarios"
           descripcion="Cuentas de tus empleados y las secciones del panel que pueden ver."
-          accion={<BotonCrear onClick={() => setCreando(true)}>Crear empleado</BotonCrear>}
+          accion={<BotonCrear onClick={() => setModal('empleado')}>Crear empleado</BotonCrear>}
         />
+
+        <section className="tarjeta mi-cuenta">
+          <div>
+            <p className="mi-cuenta__rotulo">Mi cuenta</p>
+            <strong>{nombre ?? 'Dueño'}</strong>
+          </div>
+          <button type="button" className="boton boton--secundario boton--pequeno" onClick={() => setModal('contrasena')}>
+            Cambiar mi contraseña
+          </button>
+        </section>
 
         {cargando && <p className="texto-suave">Cargando usuarios…</p>}
         {error && <p className="campo__error">No se pudieron cargar los usuarios.</p>}
@@ -79,7 +102,7 @@ export function Usuarios() {
         )}
       </main>
 
-      {creando && (
+      {modal && (
         <div className="superposicion" role="dialog" aria-modal="true" onClick={alSoltarFondo(cerrarModal)}>
           <div
             className="superposicion__panel"
@@ -91,8 +114,17 @@ export function Usuarios() {
             <button type="button" className="superposicion__cerrar-x" onClick={cerrarModal} aria-label="Cerrar">
               ×
             </button>
-            <h2>Crear empleado</h2>
-            <FormularioEmpleado onGuardar={guardarEmpleado} onCancelar={cerrarModal} />
+            {modal === 'empleado' ? (
+              <>
+                <h2>Crear empleado</h2>
+                <FormularioEmpleado onGuardar={guardarEmpleado} onCancelar={cerrarModal} />
+              </>
+            ) : (
+              <>
+                <h2>Cambiar mi contraseña</h2>
+                <FormularioContrasena onGuardar={guardarContrasena} onCancelar={cerrarModal} />
+              </>
+            )}
           </div>
         </div>
       )}

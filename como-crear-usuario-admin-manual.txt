@@ -125,10 +125,13 @@ RESUMEN — QUÉ SE HACE UNA SOLA VEZ VS. QUÉ SE REPITE
 
 CAMBIAR LOS DATOS DE UN DUEÑO O AGREGAR UN SEGUNDO DUEÑO (2026-11-09)
 ----------------------------------------------------------------
-ZÉRO tiene dos dueños. El panel no edita número, nombre ni contraseña
+ZÉRO tiene dos dueños. Cada dueño cambia SU PROPIA contraseña desde el
+panel: Usuarios → Mi cuenta → "Cambiar mi contraseña" (pide la actual;
+ninguno puede cambiar la del otro). El panel no edita número ni nombre
 de un dueño, y la sección Usuarios solo crea empleados (oculta a todos
-los dueños para que uno no pueda eliminar al otro). Para esos cambios
-hay un script con pasos y validaciones:
+los dueños para que uno no pueda eliminar al otro). Para esos cambios, o
+si un dueño olvidó su contraseña, hay un script con pasos y
+validaciones:
 
     scripts/cambiar-duenos-zero.sql
 
