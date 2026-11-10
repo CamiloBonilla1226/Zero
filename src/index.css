@@ -674,80 +674,6 @@ body.admin .boton:not(.boton--secundario):not(.boton--peligro):active:not(:disab
   white-space: nowrap;
 }
 
-/* Atajo al final de cada categoría: "Siguiente · 03" + nombre, y la flecha en un cuadro
-   con borde dorado. */
-.carta-fisica__siguiente {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--espacio-3);
-  width: 100%;
-  margin-top: var(--espacio-5);
-  padding: 14px 14px 14px var(--espacio-3);
-  border: 1px solid var(--marca-linea);
-  background: var(--marca-superficie);
-  color: var(--marca-texto);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-  transition: border-color 0.15s ease;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.carta-fisica__siguiente-texto {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.carta-fisica__siguiente-etiqueta {
-  font-size: 0.6875rem;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--marca-texto-3);
-}
-
-.carta-fisica__siguiente-nombre {
-  font-family: var(--fuente-titulos);
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  font-weight: 500;
-  font-size: 1.125rem;
-  line-height: 1.2;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.carta-fisica__siguiente-flecha {
-  flex: 0 0 auto;
-  display: grid;
-  place-items: center;
-  width: 44px;
-  height: 44px;
-  border: 1px solid var(--marca-dorado);
-  color: var(--marca-dorado);
-  transition: background 0.15s ease, color 0.15s ease;
-}
-
-.carta-fisica__siguiente:active .carta-fisica__siguiente-flecha {
-  background: var(--marca-dorado);
-  color: var(--marca-fondo);
-}
-
-@media (hover: hover) {
-  .carta-fisica__siguiente:hover {
-    border-color: color-mix(in srgb, var(--marca-dorado) 50%, var(--marca-linea));
-  }
-
-  .carta-fisica__siguiente:hover .carta-fisica__siguiente-flecha {
-    background: var(--marca-dorado);
-    color: var(--marca-fondo);
-  }
-}
-
 /* Sección "Adiciones": nombre | "+ $X", con los precios alineados. */
 .carta-fisica__adiciones {
   list-style: none;
@@ -778,13 +704,6 @@ body.admin .boton:not(.boton--secundario):not(.boton--peligro):active:not(:disab
      veían repetidas. Abajo se suma la zona de gestos del celular. */
   padding-block: var(--espacio-6) calc(var(--espacio-5) + env(safe-area-inset-bottom, 0px));
   text-align: center;
-}
-
-.carta-fisica__pie p {
-  margin: 0;
-  font-size: 0.75rem;
-  letter-spacing: 0.06em;
-  color: var(--marca-texto-3);
 }
 
 /* Fila de producto: foto | nombre, descripción (2 líneas) y opciones | precio. */
@@ -7721,5 +7640,5 @@ body.admin .notificaciones-push__boton--secundario:hover:not(:disabled) {
 .carta-fisica__pie-logo {
   width: 40px;
   height: 40px;
-  margin: 0 auto var(--espacio-2);
+  margin: 0 auto;
 }

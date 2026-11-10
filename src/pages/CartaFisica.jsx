@@ -243,23 +243,6 @@ export function CartaFisica() {
                   ) : (
                     <ListaProductosFisica productos={seccion.productos} onSeleccionar={setProductoSeleccionado} />
                   )}
-
-                  {/* Al final de una categoría, atajo a la siguiente (no hace falta volver arriba). */}
-                  {secciones[indiceActivo + 1] && (
-                    <button type="button" className="carta-fisica__siguiente" onClick={() => irASeccion(indiceActivo + 1)}>
-                      <span className="carta-fisica__siguiente-texto">
-                        <span className="carta-fisica__siguiente-etiqueta">
-                          Siguiente · {numeroSeccion(indiceActivo + 1)}
-                        </span>
-                        <span className="carta-fisica__siguiente-nombre">{secciones[indiceActivo + 1].nombre}</span>
-                      </span>
-                      <span className="carta-fisica__siguiente-flecha" aria-hidden="true">
-                        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M5 12h14M13 6l6 6-6 6" />
-                        </svg>
-                      </span>
-                    </button>
-                  )}
                 </section>
               )}
             </>
@@ -268,7 +251,6 @@ export function CartaFisica() {
 
         <footer className="contenedor carta-fisica__pie">
           <img src="/logo.webp" alt="" className="carta-fisica__pie-logo" width="40" height="40" loading="lazy" />
-          <p>Precios en pesos colombianos</p>
         </footer>
       </div>
 
