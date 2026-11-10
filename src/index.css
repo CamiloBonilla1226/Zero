@@ -95,6 +95,12 @@
   box-sizing: border-box;
 }
 
+/* El fondo también en <html>: al estirar la página más allá del final (rebote del scroll en el
+   celular) o si el contenido no llena la pantalla, asomaba una franja de otro color abajo. */
+html {
+  background: var(--color-bg);
+}
+
 html,
 body {
   margin: 0;
@@ -574,12 +580,19 @@ body.admin .boton:not(.boton--secundario):not(.boton--peligro):active:not(:disab
   outline-offset: 2px;
 }
 
-/* Alto mínimo = pantalla menos la barra fija (~112px): así, con la barra pegada arriba, una
-   categoría corta no encoge la página y la barra no salta hacia abajo al cambiar. */
-.carta-fisica__contenido {
-  flex: 1;
-  max-width: 720px;
+/* Contenido + pie: alto mínimo = pantalla menos la barra fija (~112px). Así, con la barra
+   pegada arriba, una categoría corta no encoge la página y la barra no salta al cambiar. El
+   pie va justo después del contenido y el espacio que sobre queda DEBAJO del pie (antes el
+   mínimo lo tenía solo el contenido y dejaba un hueco grande entre "Siguiente" y el pie). */
+.carta-fisica__cuerpo {
+  display: flex;
+  flex-direction: column;
   min-height: calc(100svh - 112px);
+}
+
+.carta-fisica__contenido {
+  width: 100%;
+  max-width: 720px;
 }
 
 .carta-fisica__aviso {
@@ -669,7 +682,7 @@ body.admin .boton:not(.boton--secundario):not(.boton--peligro):active:not(:disab
   justify-content: space-between;
   gap: var(--espacio-3);
   width: 100%;
-  margin-top: var(--espacio-4);
+  margin-top: var(--espacio-5);
   padding: 14px 14px 14px var(--espacio-3);
   border: 1px solid var(--marca-linea);
   background: var(--marca-superficie);
@@ -760,7 +773,10 @@ body.admin .boton:not(.boton--secundario):not(.boton--peligro):active:not(:disab
 }
 
 .carta-fisica__pie {
-  padding-block: var(--espacio-5) var(--espacio-6);
+  width: 100%;
+  /* Sin línea propia: la última fila de productos ya tiene la suya, y dos líneas seguidas se
+     veían repetidas. Abajo se suma la zona de gestos del celular. */
+  padding-block: var(--espacio-6) calc(var(--espacio-5) + env(safe-area-inset-bottom, 0px));
   text-align: center;
 }
 

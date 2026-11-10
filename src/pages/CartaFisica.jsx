@@ -184,89 +184,93 @@ export function CartaFisica() {
         )}
       </div>
 
-      <div className="contenedor carta-fisica__contenido">
-        {errorCategorias && <p className="campo__error">No se pudieron cargar las categorías.</p>}
-        {errorProductos && <p className="campo__error">No se pudieron cargar los productos.</p>}
-        {cargandoProductos && <p className="texto-suave carta-fisica__aviso">Cargando la carta…</p>}
+      {/* Contenido + pie juntos ocupan al menos la pantalla bajo la barra (ver .carta-fisica__cuerpo):
+          el espacio que sobra en una categoría corta queda debajo del pie, no en medio. */}
+      <div className="carta-fisica__cuerpo">
+        <div className="contenedor carta-fisica__contenido">
+          {errorCategorias && <p className="campo__error">No se pudieron cargar las categorías.</p>}
+          {errorProductos && <p className="campo__error">No se pudieron cargar los productos.</p>}
+          {cargandoProductos && <p className="texto-suave carta-fisica__aviso">Cargando la carta…</p>}
 
-        {resultados ? (
-          <section className="carta-fisica__seccion">
-            <div className="carta-fisica__seccion-encabezado">
-              <div>
-                <p className="carta-fisica__seccion-indice">Búsqueda</p>
-                <h2 className="carta-fisica__seccion-titulo">Resultados</h2>
-              </div>
-              <span className="carta-fisica__seccion-cantidad">
-                {resultados.length === 0
-                  ? `Nada coincide con "${busqueda.trim()}"`
-                  : `${resultados.length} ${resultados.length === 1 ? 'producto' : 'productos'}`}
-              </span>
-            </div>
-            <ListaProductosFisica productos={resultados} onSeleccionar={setProductoSeleccionado} />
-          </section>
-        ) : (
-          <>
-            {!cargandoProductos && !errorProductos && !seccion && (
-              <p className="texto-suave carta-fisica__aviso">La carta todavía no tiene productos.</p>
-            )}
-            {seccion && (
-              <section className="carta-fisica__seccion" key={seccion.id} aria-labelledby="carta-fisica-seccion">
-                <div className="carta-fisica__seccion-encabezado">
-                  <div>
-                    <p className="carta-fisica__seccion-indice">
-                      <span>{numeroSeccion(indiceActivo)}</span> / {numeroSeccion(secciones.length - 1)}
-                    </p>
-                    <h2 className="carta-fisica__seccion-titulo" id="carta-fisica-seccion">
-                      {seccion.nombre}
-                    </h2>
-                  </div>
-                  <span className="carta-fisica__seccion-cantidad">
-                    {seccion.id === SECCION_ADICIONES
-                      ? 'Para acompañar tu pedido'
-                      : `${seccion.productos.length} ${seccion.productos.length === 1 ? 'producto' : 'productos'}`}
-                  </span>
+          {resultados ? (
+            <section className="carta-fisica__seccion">
+              <div className="carta-fisica__seccion-encabezado">
+                <div>
+                  <p className="carta-fisica__seccion-indice">Búsqueda</p>
+                  <h2 className="carta-fisica__seccion-titulo">Resultados</h2>
                 </div>
-                {seccion.id === SECCION_ADICIONES ? (
-                  <ul className="carta-fisica__adiciones">
-                    {adiciones.map((adicion) => (
-                      <li key={adicion.id}>
-                        <span>{adicion.nombre}</span>
-                        <span className="carta-fisica__adicion-precio">
-                          {adicion.precio > 0 ? `+ ${formatoPrecio.format(adicion.precio)}` : 'Sin costo'}
+                <span className="carta-fisica__seccion-cantidad">
+                  {resultados.length === 0
+                    ? `Nada coincide con "${busqueda.trim()}"`
+                    : `${resultados.length} ${resultados.length === 1 ? 'producto' : 'productos'}`}
+                </span>
+              </div>
+              <ListaProductosFisica productos={resultados} onSeleccionar={setProductoSeleccionado} />
+            </section>
+          ) : (
+            <>
+              {!cargandoProductos && !errorProductos && !seccion && (
+                <p className="texto-suave carta-fisica__aviso">La carta todavía no tiene productos.</p>
+              )}
+              {seccion && (
+                <section className="carta-fisica__seccion" key={seccion.id} aria-labelledby="carta-fisica-seccion">
+                  <div className="carta-fisica__seccion-encabezado">
+                    <div>
+                      <p className="carta-fisica__seccion-indice">
+                        <span>{numeroSeccion(indiceActivo)}</span> / {numeroSeccion(secciones.length - 1)}
+                      </p>
+                      <h2 className="carta-fisica__seccion-titulo" id="carta-fisica-seccion">
+                        {seccion.nombre}
+                      </h2>
+                    </div>
+                    <span className="carta-fisica__seccion-cantidad">
+                      {seccion.id === SECCION_ADICIONES
+                        ? 'Para acompañar tu pedido'
+                        : `${seccion.productos.length} ${seccion.productos.length === 1 ? 'producto' : 'productos'}`}
+                    </span>
+                  </div>
+                  {seccion.id === SECCION_ADICIONES ? (
+                    <ul className="carta-fisica__adiciones">
+                      {adiciones.map((adicion) => (
+                        <li key={adicion.id}>
+                          <span>{adicion.nombre}</span>
+                          <span className="carta-fisica__adicion-precio">
+                            {adicion.precio > 0 ? `+ ${formatoPrecio.format(adicion.precio)}` : 'Sin costo'}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <ListaProductosFisica productos={seccion.productos} onSeleccionar={setProductoSeleccionado} />
+                  )}
+
+                  {/* Al final de una categoría, atajo a la siguiente (no hace falta volver arriba). */}
+                  {secciones[indiceActivo + 1] && (
+                    <button type="button" className="carta-fisica__siguiente" onClick={() => irASeccion(indiceActivo + 1)}>
+                      <span className="carta-fisica__siguiente-texto">
+                        <span className="carta-fisica__siguiente-etiqueta">
+                          Siguiente · {numeroSeccion(indiceActivo + 1)}
                         </span>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <ListaProductosFisica productos={seccion.productos} onSeleccionar={setProductoSeleccionado} />
-                )}
-
-                {/* Al final de una categoría, atajo a la siguiente (no hace falta volver arriba). */}
-                {secciones[indiceActivo + 1] && (
-                  <button type="button" className="carta-fisica__siguiente" onClick={() => irASeccion(indiceActivo + 1)}>
-                    <span className="carta-fisica__siguiente-texto">
-                      <span className="carta-fisica__siguiente-etiqueta">
-                        Siguiente · {numeroSeccion(indiceActivo + 1)}
+                        <span className="carta-fisica__siguiente-nombre">{secciones[indiceActivo + 1].nombre}</span>
                       </span>
-                      <span className="carta-fisica__siguiente-nombre">{secciones[indiceActivo + 1].nombre}</span>
-                    </span>
-                    <span className="carta-fisica__siguiente-flecha" aria-hidden="true">
-                      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M5 12h14M13 6l6 6-6 6" />
-                      </svg>
-                    </span>
-                  </button>
-                )}
-              </section>
-            )}
-          </>
-        )}
-      </div>
+                      <span className="carta-fisica__siguiente-flecha" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M5 12h14M13 6l6 6-6 6" />
+                        </svg>
+                      </span>
+                    </button>
+                  )}
+                </section>
+              )}
+            </>
+          )}
+        </div>
 
-      <footer className="contenedor carta-fisica__pie">
-        <img src="/logo.webp" alt="" className="carta-fisica__pie-logo" width="40" height="40" loading="lazy" />
-        <p>Precios en pesos colombianos</p>
-      </footer>
+        <footer className="contenedor carta-fisica__pie">
+          <img src="/logo.webp" alt="" className="carta-fisica__pie-logo" width="40" height="40" loading="lazy" />
+          <p>Precios en pesos colombianos</p>
+        </footer>
+      </div>
 
       {productoSeleccionado && (
         <div className="superposicion" role="dialog" aria-modal="true" onClick={alSoltarFondo(cerrarDetalle)}>
