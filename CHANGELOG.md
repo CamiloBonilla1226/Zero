@@ -2,6 +2,9 @@
 
 Todas las decisiones técnicas relevantes y funcionalidades implementadas en el proyecto base se registran aquí, en orden cronológico.
 
+## 2026-11-10
+- **"Máximo de adiciones" siempre visible en el formulario de producto** (reporte del dueño: "no me aparece"): el campo solo se mostraba si el negocio tenía adiciones creadas, igual que los sabores, y ZÉRO todavía no tiene ninguna (verificado: la tabla `adiciones` no tiene filas de ZÉRO), así que parecía que la función no existía. Ahora el campo del producto y la casilla "Máx. adic." de cada variante salen siempre; si no hay adiciones, la ayuda dice que se crean en Admin → Adiciones. En la carta no cambia nada: sin adiciones creadas no hay lista que mostrar.
+
 ## 2026-11-09
 - **Migración del máximo de adiciones corrida** (sección 26): el dueño ejecutó `scripts/migracion-cantidad-adiciones.sql`; se verificó con consultas de solo lectura que `cantidad_adiciones` existe en `productos` y `variantes_producto` y que la consulta de la carta con el embed nuevo funciona. Con eso se desplegaron el formulario, el guardado por variante y la etiqueta del panel.
 - **El panel muestra el máximo de adiciones en la lista de productos** (`etiquetaMaximoAdiciones` en `lib/adiciones.js`, `TablaProductos.jsx`): etiqueta "Hasta 3 adiciones", "Hasta 2–3 adiciones" (variantes con distinto máximo), "Sin adiciones" o "Adiciones según variante" (unas con máximo y otras sin límite). Sin límite, que es lo normal, no se muestra nada. Para eso el embed liviano de variantes en `useProductos` trae `cantidad_adiciones`; por eso este cambio no puede desplegarse antes de la migración de la sección 26 (la carta usa la misma consulta).

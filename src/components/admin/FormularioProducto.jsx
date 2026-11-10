@@ -51,8 +51,9 @@ const campoMaximo = (valor) => (valor == null ? '' : String(valor))
 // "Sabores a elegir" (solo sin variantes) dice cuántos escoge el cliente. Las variantes no
 // piden sabores: al guardar se dejan en 0.
 // Máximo de adiciones (sección 26 del script): sin variantes lo pone el producto; con variantes,
-// cada variante (ej. Pequeño 2, Grande 3). Vacío = sin límite, 0 = no admite. Se muestra si el
-// negocio tiene adiciones creadas, o si el producto ya tenía un máximo puesto.
+// cada variante (ej. Pequeño 2, Grande 3). Vacío = sin límite, 0 = no admite. Se muestra
+// siempre (pedido del dueño: con el negocio aún sin adiciones no aparecía y parecía que faltaba
+// la función); si no hay adiciones creadas, un aviso dice dónde crearlas.
 export function FormularioProducto({ categorias, productoInicial, onGuardar, onCancelar }) {
   const [valores, setValores] = useState(
     productoInicial
@@ -117,10 +118,7 @@ export function FormularioProducto({ categorias, productoInicial, onGuardar, onC
     Boolean(valores.sabor_id) ||
     Number(valores.cantidad_sabores) > 0
 
-  const usaAdiciones =
-    adiciones.length > 0 ||
-    valores.cantidad_adiciones !== '' ||
-    variantes.some((v) => v.cantidad_adiciones !== '')
+  const sinAdicionesCreadas = adiciones.length === 0
 
   const actualizar = (campo) => (evento) => {
     const valor = evento.target.type === 'checkbox' ? evento.target.checked : evento.target.value
@@ -355,21 +353,19 @@ export function FormularioProducto({ categorias, productoInicial, onGuardar, onC
                       aria-label="Comentario de la variante"
                       maxLength={120}
                     />
-                    {usaAdiciones && (
-                      <input
-                        type="number"
-                        className="gestion-opciones__maximo-adiciones"
-                        min="0"
-                        max={MAX_ADICIONES}
-                        step="1"
-                        inputMode="numeric"
-                        value={variante.cantidad_adiciones}
-                        onChange={actualizarVariante(indice, 'cantidad_adiciones')}
-                        placeholder="Máx. adic."
-                        aria-label="Máximo de adiciones de la variante (vacío = sin límite)"
-                        title="Máximo de adiciones (vacío = sin límite, 0 = ninguna)"
-                      />
-                    )}
+                    <input
+                      type="number"
+                      className="gestion-opciones__maximo-adiciones"
+                      min="0"
+                      max={MAX_ADICIONES}
+                      step="1"
+                      inputMode="numeric"
+                      value={variante.cantidad_adiciones}
+                      onChange={actualizarVariante(indice, 'cantidad_adiciones')}
+                      placeholder="Máx. adic."
+                      aria-label="Máximo de adiciones de la variante (vacío = sin límite)"
+                      title="Máximo de adiciones (vacío = sin límite, 0 = ninguna)"
+                    />
                   </div>
                 </li>
               ))}
@@ -443,14 +439,15 @@ export function FormularioProducto({ categorias, productoInicial, onGuardar, onC
         </label>
       )}
 
-      {usaAdiciones && tieneVariantes && (
+      {tieneVariantes && (
         <p className="texto-suave campo__ayuda">
           "Máx. adic." de cada variante: cuántas adiciones puede agregar el cliente (se pueden repetir). Vacío = sin
           límite, 0 = no admite adiciones.
+          {sinAdicionesCreadas && ' Todavía no hay adiciones: créalas en Admin → Adiciones para que el cliente pueda elegirlas.'}
         </p>
       )}
 
-      {usaAdiciones && !tieneVariantes && (
+      {!tieneVariantes && (
         <label className="campo">
           <span>Máximo de adiciones</span>
           <input
@@ -466,6 +463,7 @@ export function FormularioProducto({ categorias, productoInicial, onGuardar, onC
           <small className="campo__ayuda">
             Cuántas adiciones puede agregar el cliente (puede repetir la misma o no pedir ninguna). Vacío = sin límite, 0 = no
             admite adiciones.
+            {sinAdicionesCreadas && ' Todavía no hay adiciones: créalas en Admin → Adiciones para que el cliente pueda elegirlas.'}
           </small>
         </label>
       )}
