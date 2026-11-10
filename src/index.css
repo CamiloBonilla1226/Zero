@@ -4401,6 +4401,60 @@ body.body--con-nav-inferior .toast-contenedor {
 
 /* --- Inicio: "Así de fácil pides" ---
    Riel de neón vertical que une los tres números (horizontal desde tableta, ver abajo). */
+/* Inicio → "Métodos de pago": una fila por método en el celular, dos columnas desde tableta. */
+.metodos-pago {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+@media (min-width: 640px) {
+  .metodos-pago {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.metodos-pago__item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid var(--marca-linea);
+  background: var(--marca-superficie);
+}
+
+.metodos-pago__icono {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--marca-dorado);
+  color: var(--marca-dorado);
+}
+
+.metodos-pago__textos {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.metodos-pago__textos strong {
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.metodos-pago__textos span {
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  color: var(--marca-texto-2);
+}
+
 .pasos-pedido {
   position: relative;
   list-style: none;

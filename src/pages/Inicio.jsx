@@ -5,6 +5,7 @@ import { CarruselMasPedidos } from '../components/inicio/CarruselMasPedidos'
 import { CategoriasInicio } from '../components/inicio/CategoriasInicio'
 import { PasosPedido } from '../components/inicio/PasosPedido'
 import { BotonWhatsapp } from '../components/inicio/BotonWhatsapp'
+import { MetodosPago } from '../components/inicio/MetodosPago'
 import { Portada } from '../components/inicio/Portada'
 import { montoDomicilioGratis } from '../lib/tiposOferta'
 import { useNegocioConfig } from '../hooks/useNegocioConfig'
@@ -61,6 +62,9 @@ export function Inicio({
       />
 
       <PasosPedido montoDomicilioGratis={montoDomicilioGratis(ofertaActiva)} />
+
+      {/* Efectivo + los medios de transferencia que el dueño activó en Admin → Negocio. */}
+      <MetodosPago datosPago={config?.datos_pago} cargando={cargandoConfig} />
 
       {/* Cierre de la página: datos del local y el contacto directo, en un mismo bloque. */}
       <div className="inicio-cierre">
