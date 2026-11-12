@@ -2194,6 +2194,54 @@ CONSECUENCIA EN EL CÓDIGO:
   "Hasta 3 adiciones", "Hasta 2–3 adiciones", "Sin adiciones" o
   "Adiciones según variante".
 
+27. PANEL MAESTRO (SUPERADMIN DE LA PLATAFORMA)
+--------------------------------------------------------------------
+TABLAS AFECTADAS: negocios (3 políticas nuevas), plataforma_suscripciones
+y plataforma_pagos (tablas nuevas), funciones es_superadmin y sa_*.
+Ninguna tabla de los negocios cambia de columnas ni pierde políticas.
+
+QUÉ CAMBIÓ: se creó un proyecto aparte, el panel maestro
+(Desktop/panel-maestro, repo y deploy propios), para que el dueño de la
+plataforma vea y controle todos los negocios: dueños, estado, pagos,
+actividad. El script completo está en ese proyecto:
+supabase/01-migracion-panel-maestro.sql (y 02-crear-superadmin.sql para
+darle el rol a su cuenta).
+
+- es_superadmin(): true solo si auth.jwt() -> 'app_metadata' ->> 'rol'
+  = 'superadmin'. Revisado: NO usa user_metadata (regla clave #3).
+- negocios: "Superadmin lee todos los negocios" (select, también los
+  inactivos), "Superadmin crea negocios" (insert) y "Superadmin edita
+  negocios" (update). Se suman con OR a la lectura pública de activos
+  y a "dueno_actualiza_su_negocio". Sin política de delete a propósito
+  (el borrado es en cascada).
+- plataforma_suscripciones (negocio_id PK, plan, valor_mensual,
+  url_sitio, notas) y plataforma_pagos (monto, fecha_pago, meses,
+  metodo, nota): RLS con su política de superadmin creada en el mismo
+  script. Van en tablas aparte y no en columnas de negocios porque
+  negocios tiene lectura pública, y lo que se cobra o las notas no deben
+  verse desde la carta de un negocio.
+- sa_resumen_negocios(), sa_detalle_negocio(uuid), sa_registrar_pago(...):
+  security definer, revisan es_superadmin() al empezar, sin EXECUTE para
+  anon. Leen productos, pedidos, usuarios_admin, negocio_config y
+  auth.users (último acceso, cruzado por el correo interno
+  numero.negocio_id@interno.local) sin abrir el RLS de esas tablas.
+  sa_registrar_pago inserta el pago y mueve fecha_proximo_pago en la
+  misma transacción.
+
+POR QUÉ ASÍ: agregar una política de superadmin a cada tabla habría
+tocado el RLS que protege a todos los negocios y obligado a bajar todos
+los pedidos al navegador para contarlos.
+
+CONSECUENCIA EN EL CÓDIGO: ninguna en este proyecto (ni en los demás
+negocios). Crear dueños y cambiar contraseñas desde el panel maestro lo
+hacen funciones de Vercel con la service_role, que replican
+crear-usuario-admin: mismo correo interno, mismo id en auth.users y
+usuarios_admin. Si el formato del correo interno cambia en
+src/lib/phoneAuth.js, hay que cambiarlo también allá.
+
+ESTADO: PENDIENTE de que el dueño corra el script en Supabase.
+
+
 RESUMEN GENERAL
 --------------------------------------------------------------------
 La base de datos completa (negocios, usuarios_admin, categorias,
