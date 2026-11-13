@@ -2,6 +2,9 @@
 
 Todas las decisiones técnicas relevantes y funcionalidades implementadas en el proyecto base se registran aquí, en orden cronológico.
 
+## 2026-11-13
+- **El Inicio del panel muestra a los dos dueños** (reporte del dueño: solo aparecía el primero): `Dashboard.jsx` tomaba un solo dueño con `find`. Ahora junta todos los de rol "dueño" ("Ana y Luis", con `Intl.ListFormat`) y el rótulo pasa a "Dueños" cuando hay más de uno. No requiere cambios en la base: la política de lectura de `usuarios_admin` ya deja ver todas las filas del negocio.
+
 ## 2026-11-11
 - **Panel maestro (proyecto aparte en `Desktop/panel-maestro`)** (pedido del dueño: una app propia para ver todos los negocios registrados, sus dueños y quién tiene el servicio). Se conecta a la misma base de Supabase con rol `superadmin` en `app_metadata`. Agrega a la base las funciones `sa_*`, las tablas `plataforma_suscripciones` y `plataforma_pagos` y tres políticas de superadmin en `negocios` (sección 27 de `explicacion-script-bd.txt`). Este proyecto no cambia: ninguna tabla de los negocios pierde políticas ni cambia de columnas, así que no depende de que el script ya esté corrido.
 

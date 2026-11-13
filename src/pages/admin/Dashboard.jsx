@@ -43,7 +43,9 @@ export function Dashboard() {
   const pedidosRecientes = aplicarFiltrosPedidos(pedidos, FILTROS_PEDIDOS_INICIALES)
   const pedidosNuevos = pedidosRecientes.filter((p) => p.estado === 'nuevo').length
   const productosActivos = productos.filter((p) => p.disponible).length
-  const dueno = usuarios.find((u) => u.rol === 'dueño')
+  // ZÉRO tiene dos dueños: se muestran todos ("Ana y Luis"), en el orden en que se crearon.
+  const nombresDuenos = usuarios.filter((u) => u.rol === 'dueño').map((u) => u.nombre)
+  const textoDuenos = new Intl.ListFormat('es', { type: 'conjunction' }).format(nombresDuenos)
 
   return (
     <>
@@ -53,8 +55,8 @@ export function Dashboard() {
           <span className="admin-dashboard__etiqueta">Negocio</span>
           <h1>{negocioConfig.nombre}</h1>
           <div className="admin-dashboard__dueno">
-            <span className="texto-suave">Dueño</span>
-            <strong>{cargandoUsuarios ? '—' : (dueno?.nombre ?? 'Sin registrar')}</strong>
+            <span className="texto-suave">{nombresDuenos.length > 1 ? 'Dueños' : 'Dueño'}</span>
+            <strong>{cargandoUsuarios ? '—' : textoDuenos || 'Sin registrar'}</strong>
           </div>
         </section>
 
